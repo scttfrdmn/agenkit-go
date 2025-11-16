@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // DurableAgent wraps agent with automatic checkpointing and resume capability.

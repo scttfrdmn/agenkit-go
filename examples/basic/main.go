@@ -15,9 +15,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/local"
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/remote"
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/adapter/local"
+	"github.com/scttfrdmn/agenkit-go/adapter/remote"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // EchoAgent is a simple agent that echoes back messages.

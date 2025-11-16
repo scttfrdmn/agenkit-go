@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // ContextMetrics tracks context length and growth over agent lifecycle.

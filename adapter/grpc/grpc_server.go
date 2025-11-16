@@ -13,9 +13,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/codec"
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/proto/agentpb"
+	"github.com/scttfrdmn/agenkit-go/adapter/codec"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/proto/agentpb"
 )
 
 // GRPCServer implements a gRPC server for agent communication.

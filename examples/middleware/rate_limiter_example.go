@@ -48,8 +48,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/middleware"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/middleware"
 )
 
 // MockLLMAgent simulates an LLM API with realistic behavior

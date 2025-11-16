@@ -16,9 +16,9 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/http"
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/observability"
+	"github.com/scttfrdmn/agenkit-go/adapter/http"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/observability"
 )
 
 // CrossLanguageTestAgent is a test agent for cross-language integration tests.

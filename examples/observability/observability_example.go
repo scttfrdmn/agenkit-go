@@ -10,8 +10,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/observability"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/observability"
 )
 
 // SimpleAgent is a simple agent for demonstration.

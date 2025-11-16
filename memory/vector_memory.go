@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // EmbeddingProvider is the interface for embedding providers.
