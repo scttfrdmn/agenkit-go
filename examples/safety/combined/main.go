@@ -19,8 +19,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/safety"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/safety"
 )
 
 // DemoAgent is a basic agent for demonstration

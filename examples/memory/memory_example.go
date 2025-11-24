@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/memory"
-	"github.com/scttfrdmn/agenkit/agenkit-go/memory/strategies"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/memory"
+	"github.com/scttfrdmn/agenkit-go/memory/strategies"
 )
 
 func main() {

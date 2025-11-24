@@ -18,9 +18,9 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/codec"
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/errors"
-	"github.com/scttfrdmn/agenkit/agenkit-go/proto/agentpb"
+	"github.com/scttfrdmn/agenkit-go/adapter/codec"
+	"github.com/scttfrdmn/agenkit-go/adapter/errors"
+	"github.com/scttfrdmn/agenkit-go/proto/agentpb"
 )
 
 // GRPCTransportConfig configures gRPC transport security.

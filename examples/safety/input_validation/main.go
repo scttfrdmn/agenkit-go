@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/safety"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/safety"
 )
 
 // SimpleAgent is a basic agent for demonstration

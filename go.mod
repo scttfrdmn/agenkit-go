@@ -1,4 +1,4 @@
-module github.com/scttfrdmn/agenkit/agenkit-go
+module github.com/scttfrdmn/agenkit-go
 
 go 1.24.0
 
