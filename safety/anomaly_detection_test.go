@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // TestAnomalyDetector tests for AnomalyDetector

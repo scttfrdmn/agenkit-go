@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 	"github.com/redis/go-redis/v9"
 )
 

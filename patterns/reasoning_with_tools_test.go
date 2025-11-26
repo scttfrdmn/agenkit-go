@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // mockReasoningAgent is a mock agent that returns predefined responses.

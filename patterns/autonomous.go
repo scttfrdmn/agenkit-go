@@ -34,7 +34,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // GoalStatus represents the status of a goal.

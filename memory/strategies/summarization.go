@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/memory"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/memory"
 )
 
 // SummarizationStrategy summarizes old messages and keeps recent ones verbatim.

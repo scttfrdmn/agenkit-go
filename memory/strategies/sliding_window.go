@@ -3,8 +3,8 @@ package strategies
 import (
 	"context"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/memory"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/memory"
 )
 
 // SlidingWindowStrategy keeps the most recent N messages.

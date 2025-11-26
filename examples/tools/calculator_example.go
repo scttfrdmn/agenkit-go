@@ -43,8 +43,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/tools"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/tools"
 )
 
 // AddTool adds numbers accurately

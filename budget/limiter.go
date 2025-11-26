@@ -6,7 +6,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // BudgetExceededError is raised when budget is exceeded.

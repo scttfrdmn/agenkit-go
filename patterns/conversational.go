@@ -40,7 +40,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // LLMClient is the interface for conversational agents.
