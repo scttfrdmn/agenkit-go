@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // EndlessClient is the interface for endless project clients.

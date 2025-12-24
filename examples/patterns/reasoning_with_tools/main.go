@@ -21,8 +21,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/patterns"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/patterns"
 )
 
 // MockReasoningLLM simulates an LLM that performs reasoning and tool calls

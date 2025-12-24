@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // OllamaLLM is an adapter for Ollama's local LLM API.

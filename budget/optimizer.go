@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // ComplexityDetector is the interface for detecting query complexity.

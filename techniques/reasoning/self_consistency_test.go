@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // MockAgent for testing

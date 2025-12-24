@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // SequentialAgent executes a pipeline of agents in order.

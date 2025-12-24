@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/google/generative-ai-go/genai"
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )

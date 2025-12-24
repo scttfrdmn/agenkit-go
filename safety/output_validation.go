@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // OutputValidationError is raised when output validation fails.

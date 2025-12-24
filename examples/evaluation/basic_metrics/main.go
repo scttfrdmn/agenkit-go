@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/evaluation"
+	"github.com/scttfrdmn/agenkit-go/evaluation"
 )
 
 // simulateAgentSession simulates running an agent session and collecting metrics.

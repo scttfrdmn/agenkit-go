@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // AggregatorFunc is a function that combines multiple agent responses into one.

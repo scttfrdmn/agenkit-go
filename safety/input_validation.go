@@ -18,7 +18,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // ValidationError is raised when input validation fails.

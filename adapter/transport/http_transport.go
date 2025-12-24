@@ -19,9 +19,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/net/http2"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/codec"
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/errors"
-	"github.com/scttfrdmn/agenkit/agenkit-go/observability"
+	"github.com/scttfrdmn/agenkit-go/adapter/codec"
+	"github.com/scttfrdmn/agenkit-go/adapter/errors"
+	"github.com/scttfrdmn/agenkit-go/observability"
 )
 
 // HTTPVersion represents the HTTP protocol version.

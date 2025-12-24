@@ -32,7 +32,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 	"gonum.org/v1/gonum/stat"
 )
 

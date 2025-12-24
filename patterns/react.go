@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // ReActStep represents a single step in the ReAct reasoning-acting loop.

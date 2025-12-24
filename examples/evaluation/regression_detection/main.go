@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/evaluation"
+	"github.com/scttfrdmn/agenkit-go/evaluation"
 )
 
 func createEvaluationResult(id string, accuracy, quality, latency float64) *evaluation.EvaluationResult {

@@ -20,7 +20,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/evaluation"
+	"github.com/scttfrdmn/agenkit-go/evaluation"
 )
 
 // simulateAgentPerformance simulates evaluating an agent with given hyperparameters.

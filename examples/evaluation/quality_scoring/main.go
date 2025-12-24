@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/evaluation"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/evaluation"
 )
 
 // QuizAgent simulates an agent that answers quiz questions.

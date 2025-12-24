@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // Subtask represents a decomposed task for a specialist agent.

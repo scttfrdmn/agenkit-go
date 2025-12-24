@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // ApprovalRequest contains information about a pending approval decision.
