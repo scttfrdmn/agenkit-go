@@ -1,0 +1,792 @@
+// Package http provides HTTP server implementation for the protocol adapter.
+package http
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/quic-go/quic-go/http3"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+
+	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/codec"
+	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit/agenkit-go/middleware"
+)
+
+const (
+	// AgenkitVersion is the current version of the Agenkit library
+	AgenkitVersion = "0.46.0"
+)
+
+// sanitizeErrorMessage sanitizes error messages to prevent information disclosure.
+// Logs the full error server-side and returns a safe generic message.
+func sanitizeErrorMessage(errorCode string, err error) string {
+	// Log the full error server-side for debugging
+	if err != nil {
+		log.Printf("Error %s: %T: %v", errorCode, err, err)
+	}
+
+	// Return generic messages based on error code
+	sanitizedMessages := map[string]string{
+		"INVALID_MESSAGE": "Invalid message format",
+		"INVALID_REQUEST": "Invalid request",
+		"EXECUTION_ERROR": "An error occurred while processing your request",
+		"INTERNAL_ERROR":  "An internal server error occurred",
+		"NOT_IMPLEMENTED": "This operation is not supported",
+		"AGENT_NOT_FOUND": "Agent not found",
+	}
+
+	if msg, ok := sanitizedMessages[errorCode]; ok {
+		return msg
+	}
+	return "An error occurred"
+}
+
+// ServerOptions configures HTTP server behavior.
+type ServerOptions struct {
+	// EnableHTTP2 enables HTTP/2 support (both h2 and h2c)
+	EnableHTTP2 bool
+	// EnableHTTP3 enables HTTP/3 over QUIC (requires TLS)
+	EnableHTTP3 bool
+	// TLSConfig for HTTPS, HTTP/2 over TLS, and HTTP/3
+	TLSConfig *tls.Config
+	// HTTP3Addr is the UDP address for HTTP/3 (defaults to HTTP addr)
+	HTTP3Addr string
+	// EnableDefaultMiddleware enables default security middleware (rate limiting, timeout)
+	// Defaults to true for secure-by-default operation
+	EnableDefaultMiddleware bool
+	// RateLimitConfig custom rate limiter configuration (uses secure defaults if nil)
+	RateLimitConfig *middleware.RateLimiterConfig
+	// TimeoutConfig custom timeout configuration (uses 30s default if nil)
+	TimeoutConfig *middleware.TimeoutConfig
+}
+
+// HTTPAgent is an HTTP server wrapper for exposing agents over HTTP.
+type HTTPAgent struct {
+	agent       agenkit.Agent
+	server      *http.Server
+	http3Server *http3.Server
+	mux         *http.ServeMux
+	mu          sync.Mutex
+	options     ServerOptions
+	upgrader    websocket.Upgrader
+	startTime   time.Time // Track server start time for uptime
+}
+
+// NewHTTPAgent creates a new HTTP agent server with default options (HTTP/1.1 only).
+// Security: Default middleware (rate limiting, timeout) is enabled for protection.
+//
+// Args:
+//   - agent: The local agent to expose
+//   - addr: HTTP server address (e.g., "localhost:8080")
+func NewHTTPAgent(agent agenkit.Agent, addr string) *HTTPAgent {
+	return NewHTTPAgentWithOptions(agent, addr, ServerOptions{
+		EnableHTTP2:             false,
+		EnableHTTP3:             false,
+		EnableDefaultMiddleware: true,
+	})
+}
+
+// NewHTTPAgentWithOptions creates a new HTTP agent server with custom options.
+//
+// Args:
+//   - agent: The local agent to expose
+//   - addr: HTTP server address (e.g., "localhost:8080")
+//   - options: Server configuration options
+func NewHTTPAgentWithOptions(agent agenkit.Agent, addr string, options ServerOptions) *HTTPAgent {
+	// Apply default security middleware if enabled
+	if options.EnableDefaultMiddleware {
+		// Apply timeout first (innermost), then rate limiting (outermost)
+		timeoutConf := options.TimeoutConfig
+		if timeoutConf == nil {
+			timeoutConf = &middleware.TimeoutConfig{
+				Timeout: 30 * time.Second,
+			}
+		}
+		agent = middleware.NewTimeoutDecorator(agent, *timeoutConf)
+
+		// Use production-appropriate rate limits: 100 req/sec with burst of 200
+		rateLimitConf := options.RateLimitConfig
+		if rateLimitConf == nil {
+			rateLimitConf = &middleware.RateLimiterConfig{
+				Rate:             100.0, // 100 requests/second
+				Capacity:         200,   // Allow bursts up to 200 requests
+				TokensPerRequest: 1,
+			}
+		}
+		agent = middleware.NewRateLimiterDecorator(agent, *rateLimitConf)
+
+		log.Printf(
+			"Default security middleware enabled: rate_limit=%.1f req/s (burst=%d), timeout=%.1fs",
+			rateLimitConf.Rate, rateLimitConf.Capacity, timeoutConf.Timeout.Seconds(),
+		)
+	}
+
+	mux := http.NewServeMux()
+	h := &HTTPAgent{
+		agent:     agent,
+		mux:       mux,
+		options:   options,
+		startTime: time.Now(), // Track server start time for uptime
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  4096,
+			WriteBufferSize: 4096,
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Allow all origins for now
+			},
+		},
+	}
+
+	// Register handlers
+	mux.HandleFunc("/health", h.handleHealth)
+	mux.HandleFunc("/ready", h.handleReady)
+	mux.HandleFunc("/live", h.handleLive)
+	mux.HandleFunc("/process", h.handleProcess)
+	mux.HandleFunc("/stream", h.handleStream)
+	mux.HandleFunc("/ws", h.handleWebSocket)
+
+	// Configure HTTP/1.1 and HTTP/2 server
+	var handler http.Handler = mux
+	if options.EnableHTTP2 {
+		// Wrap handler with h2c for HTTP/2 cleartext support
+		handler = h2c.NewHandler(mux, &http2.Server{})
+	}
+
+	h.server = &http.Server{
+		Addr:      addr,
+		Handler:   handler,
+		TLSConfig: options.TLSConfig,
+	}
+
+	// Configure HTTP/2 over TLS if TLS is enabled
+	if options.TLSConfig != nil {
+		if err := http2.ConfigureServer(h.server, &http2.Server{}); err != nil {
+			log.Printf("Failed to configure HTTP/2: %v", err)
+		}
+	}
+
+	// Configure HTTP/3 server if enabled
+	if options.EnableHTTP3 {
+		http3Addr := options.HTTP3Addr
+		if http3Addr == "" {
+			http3Addr = addr
+		}
+
+		h.http3Server = &http3.Server{
+			Addr:      http3Addr,
+			Handler:   mux,
+			TLSConfig: options.TLSConfig,
+		}
+	}
+
+	return h
+}
+
+// Start starts the HTTP server (and HTTP/3 if enabled).
+func (h *HTTPAgent) Start(ctx context.Context) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	protocol := "http"
+	if h.server.TLSConfig != nil {
+		protocol = "https"
+	}
+	if h.options.EnableHTTP2 {
+		protocol += " (HTTP/2)"
+	}
+	if h.options.EnableHTTP3 {
+		protocol += " + HTTP/3"
+	}
+
+	log.Printf("Agent '%s' listening on %s://%s\n", h.agent.Name(), protocol, h.server.Addr)
+
+	// Start HTTP/1.1 or HTTP/2 server in background
+	go func() {
+		var err error
+		if h.server.TLSConfig != nil {
+			// HTTPS with TLS
+			err = h.server.ListenAndServeTLS("", "")
+		} else {
+			// HTTP (cleartext)
+			err = h.server.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v\n", err)
+		}
+	}()
+
+	// Start HTTP/3 server in background if enabled
+	if h.http3Server != nil {
+		log.Printf("Agent '%s' HTTP/3 listening on %s (UDP)\n", h.agent.Name(), h.http3Server.Addr)
+		go func() {
+			ln, err := net.ListenPacket("udp", h.http3Server.Addr)
+			if err != nil {
+				log.Printf("HTTP/3 server listen error: %v\n", err)
+				return
+			}
+			if err := h.http3Server.Serve(ln); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTP/3 server error: %v\n", err)
+			}
+		}()
+	}
+
+	return nil
+}
+
+// Stop stops the HTTP server (and HTTP/3 if enabled).
+func (h *HTTPAgent) Stop() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	log.Printf("Agent '%s' stopped\n", h.agent.Name())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*1000*1000*1000) // 5 seconds
+	defer cancel()
+
+	// Shutdown HTTP/1.1 or HTTP/2 server
+	if err := h.server.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	// Close HTTP/3 server if running
+	if h.http3Server != nil {
+		if err := h.http3Server.Close(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// handleHealth handles health check requests.
+// Returns overall health status with version and uptime information.
+// Suitable for monitoring and status dashboards.
+func (h *HTTPAgent) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodHead && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	uptime := int(time.Since(h.startTime).Seconds())
+	healthData := map[string]interface{}{
+		"status":  "healthy",
+		"version": AgenkitVersion,
+		"uptime":  uptime,
+		"agent":   h.agent.Name(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(healthData); err != nil {
+		log.Printf("Failed to encode health response: %v", err)
+	}
+}
+
+// handleReady handles readiness probe requests.
+// Indicates whether the server is ready to accept traffic.
+// Used by Kubernetes and load balancers to determine if the pod
+// should receive requests.
+func (h *HTTPAgent) handleReady(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodHead && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Basic readiness: server is running and agent is available
+	// In production, add additional checks (database, cache, etc.)
+	readyData := map[string]interface{}{
+		"ready": true,
+		"checks": map[string]string{
+			"server": "ok",
+			"agent":  "ok",
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(readyData); err != nil {
+		log.Printf("Failed to encode ready response: %v", err)
+	}
+}
+
+// handleLive handles liveness probe requests.
+// Indicates whether the server process is alive.
+// Used by Kubernetes to determine if the pod needs to be restarted.
+// Should return success unless the process is deadlocked or unrecoverable.
+func (h *HTTPAgent) handleLive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodHead && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	liveData := map[string]interface{}{
+		"alive": true,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(liveData); err != nil {
+		log.Printf("Failed to encode live response: %v", err)
+	}
+}
+
+// handleProcess handles process requests.
+func (h *HTTPAgent) handleProcess(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.sendError(w, "unknown", "INVALID_REQUEST", "failed to read request body", nil)
+		return
+	}
+	defer func() { _ = r.Body.Close() }()
+
+	// Decode request envelope
+	envelope, err := codec.DecodeBytes(body)
+	if err != nil {
+		h.sendError(w, "unknown", "INVALID_MESSAGE", "failed to decode request", nil)
+		return
+	}
+
+	// Extract message
+	messageData, ok := envelope.Payload["message"].(map[string]interface{})
+	if !ok {
+		h.sendError(w, envelope.ID, "INVALID_MESSAGE", "invalid message format", nil)
+		return
+	}
+
+	msgData := codec.MessageData{
+		Role:      messageData["role"].(string),
+		Content:   messageData["content"].(string),
+		Metadata:  messageData["metadata"].(map[string]interface{}),
+		Timestamp: messageData["timestamp"].(string),
+	}
+
+	inputMessage, err := codec.DecodeMessage(msgData)
+	if err != nil {
+		h.sendError(w, envelope.ID, "INVALID_MESSAGE", sanitizeErrorMessage("INVALID_MESSAGE", err), nil)
+		return
+	}
+
+	// Process message through agent
+	result, err := h.agent.Process(r.Context(), inputMessage)
+	if err != nil {
+		h.sendError(w, envelope.ID, "EXECUTION_ERROR", sanitizeErrorMessage("EXECUTION_ERROR", err), nil)
+		return
+	}
+
+	// Create response envelope
+	responsePayload := map[string]interface{}{
+		"message": codec.EncodeMessage(result),
+	}
+	response := codec.CreateResponseEnvelope(envelope.ID, responsePayload)
+
+	// Send response
+	responseBytes, err := codec.EncodeBytes(response)
+	if err != nil {
+		h.sendError(w, envelope.ID, "INTERNAL_ERROR", "failed to encode response", nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(responseBytes); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+// handleStream handles streaming requests.
+func (h *HTTPAgent) handleStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check if agent supports streaming
+	streamingAgent, ok := h.agent.(agenkit.StreamingAgent)
+	if !ok {
+		h.sendError(w, "unknown", "NOT_IMPLEMENTED", "agent does not support streaming", nil)
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.sendError(w, "unknown", "INVALID_REQUEST", "failed to read request body", nil)
+		return
+	}
+	defer func() { _ = r.Body.Close() }()
+
+	// Decode request envelope
+	envelope, err := codec.DecodeBytes(body)
+	if err != nil {
+		h.sendError(w, "unknown", "INVALID_MESSAGE", "failed to decode request", nil)
+		return
+	}
+
+	// Extract message
+	messageData, ok := envelope.Payload["message"].(map[string]interface{})
+	if !ok {
+		h.sendError(w, envelope.ID, "INVALID_MESSAGE", "invalid message format", nil)
+		return
+	}
+
+	msgData := codec.MessageData{
+		Role:      messageData["role"].(string),
+		Content:   messageData["content"].(string),
+		Metadata:  messageData["metadata"].(map[string]interface{}),
+		Timestamp: messageData["timestamp"].(string),
+	}
+
+	inputMessage, err := codec.DecodeMessage(msgData)
+	if err != nil {
+		h.sendError(w, envelope.ID, "INVALID_MESSAGE", sanitizeErrorMessage("INVALID_MESSAGE", err), nil)
+		return
+	}
+
+	// Set headers for SSE
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	// Note: Connection header not set - HTTP/2 and HTTP/3 don't allow hop-by-hop headers
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		h.sendError(w, envelope.ID, "INTERNAL_ERROR", "streaming not supported", nil)
+		return
+	}
+
+	// Start streaming
+	messageChan, errorChan := streamingAgent.Stream(r.Context(), inputMessage)
+
+	// Track channel closures
+	messageChanClosed := false
+	errorChanClosed := false
+
+	for {
+		select {
+		case chunk, ok := <-messageChan:
+			if !ok {
+				messageChanClosed = true
+				if errorChanClosed {
+					// Both channels closed - stream complete
+					endEnv := codec.CreateStreamEndEnvelope(envelope.ID)
+					h.sendSSEEvent(w, envelope.ID, "stream_end", endEnv)
+					flusher.Flush()
+					return
+				}
+				messageChan = nil
+				continue
+			}
+
+			// Send chunk as SSE
+			chunkEnv := codec.CreateStreamChunkEnvelope(envelope.ID, codec.EncodeMessage(chunk))
+			h.sendSSEEvent(w, envelope.ID, "stream_chunk", chunkEnv)
+			flusher.Flush()
+
+		case err, ok := <-errorChan:
+			if ok && err != nil {
+				h.sendSSEError(w, envelope.ID, "STREAM_ERROR", err.Error())
+				flusher.Flush()
+				return
+			}
+			if !ok {
+				errorChanClosed = true
+				if messageChanClosed {
+					// Both channels closed - stream complete
+					endEnv := codec.CreateStreamEndEnvelope(envelope.ID)
+					h.sendSSEEvent(w, envelope.ID, "stream_end", endEnv)
+					flusher.Flush()
+					return
+				}
+				errorChan = nil
+				continue
+			}
+
+		case <-r.Context().Done():
+			h.sendSSEError(w, envelope.ID, "CANCELLED", "request cancelled")
+			flusher.Flush()
+			return
+		}
+	}
+}
+
+// sendSSEEvent sends a Server-Sent Event.
+func (h *HTTPAgent) sendSSEEvent(w http.ResponseWriter, id, eventType string, data interface{}) {
+	if data != nil {
+		jsonData, _ := json.Marshal(data)
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", jsonData); err != nil {
+			log.Printf("Failed to write SSE event: %v", err)
+		}
+	} else {
+		if _, err := fmt.Fprintf(w, "data: {\"type\":\"%s\",\"id\":\"%s\"}\n\n", eventType, id); err != nil {
+			log.Printf("Failed to write SSE event: %v", err)
+		}
+	}
+}
+
+// sendSSEError sends an error as Server-Sent Event.
+func (h *HTTPAgent) sendSSEError(w http.ResponseWriter, id, errorCode, errorMessage string) {
+	errorEnv := codec.CreateErrorEnvelope(id, errorCode, errorMessage, nil)
+	jsonData, _ := json.Marshal(errorEnv)
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", jsonData); err != nil {
+		log.Printf("Failed to write SSE error: %v", err)
+	}
+}
+
+// sendError sends an error response.
+func (h *HTTPAgent) sendError(w http.ResponseWriter, id, errorCode, errorMessage string, details map[string]interface{}) {
+	envelope := codec.CreateErrorEnvelope(id, errorCode, errorMessage, details)
+	responseBytes, _ := codec.EncodeBytes(envelope)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// Map error codes to HTTP status codes
+	statusCode := http.StatusInternalServerError
+	switch errorCode {
+	case "INVALID_MESSAGE", "INVALID_REQUEST":
+		statusCode = http.StatusBadRequest
+	case "NOT_IMPLEMENTED":
+		statusCode = http.StatusNotImplemented
+	case "AGENT_NOT_FOUND":
+		statusCode = http.StatusNotFound
+	}
+
+	w.WriteHeader(statusCode)
+	if _, err := w.Write(responseBytes); err != nil {
+		log.Printf("Failed to write error response: %v", err)
+	}
+}
+
+// handleWebSocket handles WebSocket upgrade and communication.
+func (h *HTTPAgent) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Upgrade connection to WebSocket
+	conn, err := h.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v\n", err)
+		return
+	}
+	defer func() { _ = conn.Close() }()
+
+	log.Printf("WebSocket client connected: %s\n", r.RemoteAddr)
+
+	// Set message size limit (10 MB)
+	conn.SetReadLimit(10 * 1024 * 1024)
+
+	// Handle messages
+	for {
+		// Read message
+		messageType, message, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				log.Printf("WebSocket client disconnected: %s\n", r.RemoteAddr)
+			} else {
+				log.Printf("WebSocket read error: %v\n", err)
+			}
+			break
+		}
+
+		// Only handle binary messages
+		if messageType != websocket.BinaryMessage {
+			h.sendWebSocketError(conn, "unknown", "INVALID_MESSAGE", "only binary messages are supported", nil)
+			continue
+		}
+
+		// Decode request envelope
+		envelope, err := codec.DecodeBytes(message)
+		if err != nil {
+			h.sendWebSocketError(conn, "unknown", "INVALID_MESSAGE", "failed to decode request", nil)
+			continue
+		}
+
+		// Extract method
+		method, ok := envelope.Payload["method"].(string)
+		if !ok {
+			h.sendWebSocketError(conn, envelope.ID, "INVALID_MESSAGE", "missing method in payload", nil)
+			continue
+		}
+
+		// Handle different methods
+		switch method {
+		case "process":
+			h.handleWebSocketProcess(conn, *envelope)
+		case "stream":
+			h.handleWebSocketStream(conn, *envelope)
+		default:
+			h.sendWebSocketError(conn, envelope.ID, "INVALID_MESSAGE", fmt.Sprintf("unknown method: %s", method), nil)
+		}
+	}
+}
+
+// handleWebSocketProcess handles a regular process request over WebSocket.
+func (h *HTTPAgent) handleWebSocketProcess(conn *websocket.Conn, envelope codec.Envelope) {
+	// Extract message
+	messageData, ok := envelope.Payload["message"].(map[string]interface{})
+	if !ok {
+		h.sendWebSocketError(conn, envelope.ID, "INVALID_MESSAGE", "invalid message format", nil)
+		return
+	}
+
+	msgData := codec.MessageData{
+		Role:      messageData["role"].(string),
+		Content:   messageData["content"].(string),
+		Metadata:  messageData["metadata"].(map[string]interface{}),
+		Timestamp: messageData["timestamp"].(string),
+	}
+
+	inputMessage, err := codec.DecodeMessage(msgData)
+	if err != nil {
+		h.sendWebSocketError(conn, envelope.ID, "INVALID_MESSAGE", err.Error(), nil)
+		return
+	}
+
+	// Process message through agent
+	result, err := h.agent.Process(context.Background(), inputMessage)
+	if err != nil {
+		h.sendWebSocketError(conn, envelope.ID, "EXECUTION_ERROR", err.Error(), nil)
+		return
+	}
+
+	// Create response envelope
+	responsePayload := map[string]interface{}{
+		"message": codec.EncodeMessage(result),
+	}
+	response := codec.CreateResponseEnvelope(envelope.ID, responsePayload)
+
+	// Send response
+	responseBytes, err := codec.EncodeBytes(response)
+	if err != nil {
+		h.sendWebSocketError(conn, envelope.ID, "INTERNAL_ERROR", "failed to encode response", nil)
+		return
+	}
+
+	if err := conn.WriteMessage(websocket.BinaryMessage, responseBytes); err != nil {
+		log.Printf("WebSocket write error: %v\n", err)
+	}
+}
+
+// handleWebSocketStream handles a streaming request over WebSocket.
+func (h *HTTPAgent) handleWebSocketStream(conn *websocket.Conn, envelope codec.Envelope) {
+	// Check if agent supports streaming
+	streamingAgent, ok := h.agent.(agenkit.StreamingAgent)
+	if !ok {
+		h.sendWebSocketError(conn, envelope.ID, "NOT_IMPLEMENTED", "agent does not support streaming", nil)
+		return
+	}
+
+	// Extract message
+	messageData, ok := envelope.Payload["message"].(map[string]interface{})
+	if !ok {
+		h.sendWebSocketError(conn, envelope.ID, "INVALID_MESSAGE", "invalid message format", nil)
+		return
+	}
+
+	msgData := codec.MessageData{
+		Role:      messageData["role"].(string),
+		Content:   messageData["content"].(string),
+		Metadata:  messageData["metadata"].(map[string]interface{}),
+		Timestamp: messageData["timestamp"].(string),
+	}
+
+	inputMessage, err := codec.DecodeMessage(msgData)
+	if err != nil {
+		h.sendWebSocketError(conn, envelope.ID, "INVALID_MESSAGE", err.Error(), nil)
+		return
+	}
+
+	// Start streaming
+	messageChan, errorChan := streamingAgent.Stream(context.Background(), inputMessage)
+
+	// Track channel closures
+	messageChanClosed := false
+	errorChanClosed := false
+
+	for {
+		select {
+		case chunk, ok := <-messageChan:
+			if !ok {
+				messageChanClosed = true
+				if errorChanClosed {
+					// Both channels closed - stream complete
+					endEnv := codec.CreateStreamEndEnvelope(envelope.ID)
+					endBytes, _ := codec.EncodeBytes(endEnv)
+					if err := conn.WriteMessage(websocket.BinaryMessage, endBytes); err != nil {
+						log.Printf("WebSocket write error: %v", err)
+					}
+					return
+				}
+				messageChan = nil
+				continue
+			}
+
+			// Send chunk
+			chunkEnv := codec.CreateStreamChunkEnvelope(envelope.ID, codec.EncodeMessage(chunk))
+			chunkBytes, _ := codec.EncodeBytes(chunkEnv)
+			if err := conn.WriteMessage(websocket.BinaryMessage, chunkBytes); err != nil {
+				log.Printf("WebSocket write error: %v\n", err)
+				return
+			}
+
+		case err, ok := <-errorChan:
+			if ok && err != nil {
+				h.sendWebSocketError(conn, envelope.ID, "STREAM_ERROR", err.Error(), nil)
+				return
+			}
+			if !ok {
+				errorChanClosed = true
+				if messageChanClosed {
+					// Both channels closed - stream complete
+					endEnv := codec.CreateStreamEndEnvelope(envelope.ID)
+					endBytes, _ := codec.EncodeBytes(endEnv)
+					if err := conn.WriteMessage(websocket.BinaryMessage, endBytes); err != nil {
+						log.Printf("WebSocket write error: %v", err)
+					}
+					return
+				}
+				errorChan = nil
+				continue
+			}
+		}
+	}
+}
+
+// sendWebSocketError sends an error response over WebSocket.
+func (h *HTTPAgent) sendWebSocketError(conn *websocket.Conn, id, errorCode, errorMessage string, details map[string]interface{}) {
+	envelope := codec.CreateErrorEnvelope(id, errorCode, errorMessage, details)
+	responseBytes, _ := codec.EncodeBytes(envelope)
+	if err := conn.WriteMessage(websocket.BinaryMessage, responseBytes); err != nil {
+		log.Printf("WebSocket write error: %v", err)
+	}
+}
+
+// ParseHTTPEndpoint parses an HTTP endpoint string.
+// Format: http://host:port or https://host:port
+func ParseHTTPEndpoint(endpoint string) (string, error) {
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		return "", fmt.Errorf("invalid HTTP endpoint: %s", endpoint)
+	}
+
+	// Extract address (remove http:// or https://)
+	var addr string
+	if strings.HasPrefix(endpoint, "https://") {
+		addr = endpoint[8:]
+	} else {
+		addr = endpoint[7:]
+	}
+
+	return addr, nil
+}

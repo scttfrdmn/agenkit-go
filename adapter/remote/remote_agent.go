@@ -1,0 +1,376 @@
+// Package remote provides the client-side proxy for remote agents.
+package remote
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/codec"
+	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/errors"
+	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/transport"
+	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+)
+
+// RemoteAgent is a client-side proxy for a remote agent.
+// It implements the Agent interface and forwards all calls to a remote agent
+// over the protocol adapter.
+type RemoteAgent struct {
+	name      string
+	endpoint  string
+	transport transport.Transport
+	timeout   time.Duration
+	connected bool
+	mu        sync.Mutex // Serialize requests on same connection
+}
+
+// NewRemoteAgent creates a new remote agent client.
+//
+// Args:
+//   - name: Name of the remote agent
+//   - endpoint: Endpoint URL (e.g., "unix:///tmp/agent.sock" or "tcp://host:port")
+//   - timeout: Request timeout (0 for default 30s)
+func NewRemoteAgent(name, endpoint string, timeout time.Duration) (*RemoteAgent, error) {
+	if endpoint == "" {
+		return nil, fmt.Errorf("endpoint must be provided")
+	}
+
+	trans, err := transport.ParseEndpoint(endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+
+	return &RemoteAgent{
+		name:      name,
+		endpoint:  endpoint,
+		transport: trans,
+		timeout:   timeout,
+		connected: false,
+	}, nil
+}
+
+// NewRemoteAgentWithTransport creates a new remote agent client with a custom transport.
+func NewRemoteAgentWithTransport(name string, trans transport.Transport, timeout time.Duration) *RemoteAgent {
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+
+	return &RemoteAgent{
+		name:      name,
+		transport: trans,
+		timeout:   timeout,
+		connected: false,
+	}
+}
+
+// ensureConnected ensures the transport is connected.
+func (r *RemoteAgent) ensureConnected(ctx context.Context) error {
+	if !r.connected {
+		if err := r.transport.Connect(ctx); err != nil {
+			return err
+		}
+		r.connected = true
+	}
+	return nil
+}
+
+// Name returns the agent name.
+func (r *RemoteAgent) Name() string {
+	return r.name
+}
+
+// Process processes a message through the remote agent.
+func (r *RemoteAgent) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
+	if err := r.ensureConnected(ctx); err != nil {
+		return nil, err
+	}
+
+	// Create request envelope
+	payload := map[string]interface{}{
+		"message": codec.EncodeMessage(message),
+	}
+	request := codec.CreateRequestEnvelope("process", r.name, payload)
+
+	// Serialize requests on same connection
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Create timeout context
+	timeoutCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var response *codec.Envelope
+	var err error
+
+	// Use fast path if available (gRPC transport with protobuf optimization)
+	if envTransport, ok := r.transport.(transport.EnvelopeTransport); ok {
+		// FAST PATH: Send envelope directly (skip JSON encoding/decoding)
+		if err := envTransport.SendFramedEnvelope(timeoutCtx, request); err != nil {
+			return nil, err
+		}
+
+		response, err = envTransport.ReceiveFramedEnvelope(timeoutCtx)
+		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return nil, errors.NewAgentTimeoutError(r.name, r.timeout.Seconds())
+			}
+			return nil, err
+		}
+	} else {
+		// SLOW PATH: Encode to JSON for backward compatibility
+		requestBytes, err := codec.EncodeBytes(request)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode request: %w", err)
+		}
+
+		if err := r.transport.SendFramed(timeoutCtx, requestBytes); err != nil {
+			return nil, err
+		}
+
+		// Receive response
+		responseBytes, err := r.transport.ReceiveFramed(timeoutCtx)
+		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return nil, errors.NewAgentTimeoutError(r.name, r.timeout.Seconds())
+			}
+			return nil, err
+		}
+
+		response, err = codec.DecodeBytes(responseBytes)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Handle response
+	if response.Type == codec.TypeError {
+		payload := response.Payload
+		errorMessage, _ := payload["error_message"].(string)
+		errorDetails, _ := payload["error_details"].(map[string]interface{})
+		return nil, errors.NewRemoteExecutionError(r.name, errorMessage, errorDetails)
+	}
+
+	if response.Type != codec.TypeResponse {
+		return nil, errors.NewInvalidMessageError(
+			fmt.Sprintf("expected 'response' but got '%s'", response.Type),
+			map[string]interface{}{"response": response},
+		)
+	}
+
+	// Decode message
+	messageData, ok := response.Payload["message"].(map[string]interface{})
+	if !ok {
+		return nil, errors.NewInvalidMessageError("invalid message format in response", nil)
+	}
+
+	// Convert map to MessageData
+	msgData := codec.MessageData{
+		Role:      messageData["role"].(string),
+		Content:   messageData["content"].(string),
+		Timestamp: messageData["timestamp"].(string),
+	}
+
+	// Handle metadata - can be map[string]interface{} or map[string]string
+	if metadata, ok := messageData["metadata"].(map[string]interface{}); ok {
+		msgData.Metadata = metadata
+	} else if metadata, ok := messageData["metadata"].(map[string]string); ok {
+		// Convert map[string]string to map[string]interface{}
+		msgData.Metadata = make(map[string]interface{})
+		for k, v := range metadata {
+			msgData.Metadata[k] = v
+		}
+	}
+
+	return codec.DecodeMessage(msgData)
+}
+
+// Stream streams responses from the remote agent.
+func (r *RemoteAgent) Stream(ctx context.Context, message *agenkit.Message) (<-chan *agenkit.Message, <-chan error) {
+	messageChan := make(chan *agenkit.Message)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(messageChan)
+		defer close(errorChan)
+
+		if err := r.ensureConnected(ctx); err != nil {
+			errorChan <- err
+			return
+		}
+
+		// Create stream request envelope
+		payload := map[string]interface{}{
+			"message": codec.EncodeMessage(message),
+		}
+		request := codec.CreateRequestEnvelope("stream", r.name, payload)
+
+		// Serialize requests on same connection
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
+		// Create timeout context
+		timeoutCtx, cancel := context.WithTimeout(ctx, r.timeout)
+		defer cancel()
+
+		// Use fast path if available (gRPC transport with protobuf optimization)
+		if envTransport, ok := r.transport.(transport.EnvelopeTransport); ok {
+			// FAST PATH: Send envelope directly (skip JSON encoding/decoding)
+			if err := envTransport.SendFramedEnvelope(timeoutCtx, request); err != nil {
+				errorChan <- err
+				return
+			}
+
+			// Receive stream chunks
+			for {
+				response, err := envTransport.ReceiveFramedEnvelope(timeoutCtx)
+				if err != nil {
+					if ctx.Err() == context.DeadlineExceeded {
+						errorChan <- errors.NewAgentTimeoutError(r.name, r.timeout.Seconds())
+					} else {
+						errorChan <- err
+					}
+					return
+				}
+
+				if err := r.handleStreamResponse(response, messageChan, errorChan, ctx); err != nil {
+					return
+				}
+				if response.Type == codec.TypeStreamEnd {
+					return
+				}
+			}
+		} else {
+			// SLOW PATH: Encode to JSON for backward compatibility
+			requestBytes, err := codec.EncodeBytes(request)
+			if err != nil {
+				errorChan <- fmt.Errorf("failed to encode request: %w", err)
+				return
+			}
+
+			if err := r.transport.SendFramed(timeoutCtx, requestBytes); err != nil {
+				errorChan <- err
+				return
+			}
+
+			// Receive stream chunks
+			for {
+				responseBytes, err := r.transport.ReceiveFramed(timeoutCtx)
+				if err != nil {
+					if ctx.Err() == context.DeadlineExceeded {
+						errorChan <- errors.NewAgentTimeoutError(r.name, r.timeout.Seconds())
+					} else {
+						errorChan <- err
+					}
+					return
+				}
+
+				response, err := codec.DecodeBytes(responseBytes)
+				if err != nil {
+					errorChan <- err
+					return
+				}
+
+				if err := r.handleStreamResponse(response, messageChan, errorChan, ctx); err != nil {
+					return
+				}
+				if response.Type == codec.TypeStreamEnd {
+					return
+				}
+			}
+		}
+	}()
+
+	return messageChan, errorChan
+}
+
+// handleStreamResponse handles a single stream response.
+func (r *RemoteAgent) handleStreamResponse(
+	response *codec.Envelope,
+	messageChan chan *agenkit.Message,
+	errorChan chan error,
+	ctx context.Context,
+) error {
+	// Handle response type
+	switch response.Type {
+	case codec.TypeError:
+		payload := response.Payload
+		errorMessage, _ := payload["error_message"].(string)
+		errorDetails, _ := payload["error_details"].(map[string]interface{})
+		errorChan <- errors.NewRemoteExecutionError(r.name, errorMessage, errorDetails)
+		return fmt.Errorf("remote error")
+
+	case codec.TypeStreamChunk:
+		// Decode chunk message
+		messageData, ok := response.Payload["message"].(map[string]interface{})
+		if !ok {
+			errorChan <- errors.NewInvalidMessageError("invalid message format in stream chunk", nil)
+			return fmt.Errorf("invalid message format")
+		}
+
+		// Convert map to MessageData
+		msgData := codec.MessageData{
+			Role:      messageData["role"].(string),
+			Content:   messageData["content"].(string),
+			Timestamp: messageData["timestamp"].(string),
+		}
+
+		// Handle metadata - can be map[string]interface{} or map[string]string
+		if metadata, ok := messageData["metadata"].(map[string]interface{}); ok {
+			msgData.Metadata = metadata
+		} else if metadata, ok := messageData["metadata"].(map[string]string); ok {
+			// Convert map[string]string to map[string]interface{}
+			msgData.Metadata = make(map[string]interface{})
+			for k, v := range metadata {
+				msgData.Metadata[k] = v
+			}
+		}
+
+		chunk, err := codec.DecodeMessage(msgData)
+		if err != nil {
+			errorChan <- err
+			return err
+		}
+
+		select {
+		case messageChan <- chunk:
+		case <-ctx.Done():
+			errorChan <- ctx.Err()
+			return ctx.Err()
+		}
+
+	case codec.TypeStreamEnd:
+		// Stream complete
+		return nil
+
+	default:
+		err := errors.NewInvalidMessageError(
+			fmt.Sprintf("expected 'stream_chunk' or 'stream_end' but got '%s'", response.Type),
+			map[string]interface{}{"response": response},
+		)
+		errorChan <- err
+		return err
+	}
+
+	return nil
+}
+
+// Capabilities returns the agent capabilities.
+// Note: Capability querying not yet implemented in v0.1.0.
+func (r *RemoteAgent) Capabilities() []string {
+	return []string{}
+}
+
+// Close closes the connection to the remote agent.
+func (r *RemoteAgent) Close() error {
+	if r.connected {
+		err := r.transport.Close()
+		r.connected = false
+		return err
+	}
+	return nil
+}
