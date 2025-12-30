@@ -22,9 +22,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter/llm"
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/middleware"
+	"github.com/scttfrdmn/agenkit-go/adapter/llm"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/middleware"
 )
 
 func printSeparator(title string) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // TestCollaborativeAgent_Constructor tests valid construction

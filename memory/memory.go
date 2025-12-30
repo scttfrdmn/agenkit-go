@@ -19,7 +19,7 @@ package memory
 import (
 	"context"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // Memory is the minimal interface for agent memory systems.

@@ -3,7 +3,7 @@ package patterns
 import (
 	"context"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // extendedMockAgent provides more flexible mocking for comprehensive tests

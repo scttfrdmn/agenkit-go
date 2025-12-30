@@ -21,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/patterns"
+	"github.com/scttfrdmn/agenkit-go/patterns"
 )
 
 // Example 1: Basic autonomous agent

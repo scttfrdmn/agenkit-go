@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/techniques/reasoning"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/techniques/reasoning"
 )
 
 // MockVariableAgent returns varying responses for testing

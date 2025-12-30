@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // OutputFormat specifies how agent output should be formatted.

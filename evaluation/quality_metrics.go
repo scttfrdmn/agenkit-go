@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // ValidatorFunc is a custom validation function type.

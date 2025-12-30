@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // SimpleAgent is a basic agent for demonstration

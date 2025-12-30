@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/patterns"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/patterns"
 )
 
 // CalculatorTool performs basic arithmetic calculations

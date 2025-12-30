@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // ChainOfThought implements the Chain-of-Thought reasoning technique.

@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // TaskStatus represents task execution status.

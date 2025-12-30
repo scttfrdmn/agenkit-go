@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 // VotingStrategy defines how to aggregate multiple answers.
