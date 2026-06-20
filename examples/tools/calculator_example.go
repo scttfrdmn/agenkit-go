@@ -53,7 +53,7 @@ type AddTool struct{}
 func (t *AddTool) Name() string        { return "add" }
 func (t *AddTool) Description() string { return "Add two or more numbers together" }
 
-func (t *AddTool) Execute(ctx context.Context, params map[string]interface{}) (*agenkit.ToolResult, error) {
+func (t *AddTool) Execute(ctx context.Context, params map[string]any) (*agenkit.ToolResult, error) {
 	numbersIface, ok := params["numbers"]
 	if !ok {
 		return agenkit.NewToolError("missing 'numbers' parameter"), nil
@@ -97,7 +97,7 @@ type MultiplyTool struct{}
 func (t *MultiplyTool) Name() string        { return "multiply" }
 func (t *MultiplyTool) Description() string { return "Multiply two or more numbers together" }
 
-func (t *MultiplyTool) Execute(ctx context.Context, params map[string]interface{}) (*agenkit.ToolResult, error) {
+func (t *MultiplyTool) Execute(ctx context.Context, params map[string]any) (*agenkit.ToolResult, error) {
 	numbersIface, ok := params["numbers"]
 	if !ok {
 		return agenkit.NewToolError("missing 'numbers' parameter"), nil
@@ -136,7 +136,7 @@ type PowerTool struct{}
 func (t *PowerTool) Name() string        { return "power" }
 func (t *PowerTool) Description() string { return "Compute base^exponent" }
 
-func (t *PowerTool) Execute(ctx context.Context, params map[string]interface{}) (*agenkit.ToolResult, error) {
+func (t *PowerTool) Execute(ctx context.Context, params map[string]any) (*agenkit.ToolResult, error) {
 	base, ok := params["base"].(float64)
 	if !ok {
 		if i, ok := params["base"].(int); ok {
@@ -171,7 +171,7 @@ type SqrtTool struct{}
 func (t *SqrtTool) Name() string        { return "sqrt" }
 func (t *SqrtTool) Description() string { return "Compute square root of a number" }
 
-func (t *SqrtTool) Execute(ctx context.Context, params map[string]interface{}) (*agenkit.ToolResult, error) {
+func (t *SqrtTool) Execute(ctx context.Context, params map[string]any) (*agenkit.ToolResult, error) {
 	number, ok := params["number"].(float64)
 	if !ok {
 		if i, ok := params["number"].(int); ok {
@@ -209,7 +209,7 @@ func (a *SimpleAgent) Capabilities() []string { return []string{"math", "calcula
 
 func (a *SimpleAgent) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
 	// Simple parsing to extract tool calls from natural language
-	content := strings.ToLower(message.Content)
+	content := strings.ToLower(message.ContentString())
 
 	var result *agenkit.ToolResult
 	var err error
@@ -304,7 +304,7 @@ func example1BasicMath() {
 	for _, test := range tests {
 		fmt.Printf("\nQuery: %s\n", test)
 		result, _ := agent.Process(ctx, agenkit.NewMessage("user", test))
-		fmt.Printf("Result: %s\n", result.Content)
+		fmt.Printf("Result: %s\n", result.ContentString())
 
 		// Show the actual tool data
 		if toolResult, ok := result.Metadata["tool_result"].(map[string]interface{}); ok {
@@ -342,7 +342,7 @@ func example2MathFunctions() {
 	for _, test := range tests {
 		fmt.Printf("\nQuery: %s\n", test)
 		result, _ := agent.Process(ctx, agenkit.NewMessage("user", test))
-		fmt.Printf("Result: %s\n", result.Content)
+		fmt.Printf("Result: %s\n", result.ContentString())
 	}
 
 	fmt.Println("\nWHY TOOLS FOR MATH FUNCTIONS?")

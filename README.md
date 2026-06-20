@@ -4,7 +4,7 @@
 
 The Go implementation of Agenkit provides exceptional performance (18x faster than Python) while maintaining 100% behavioral parity with the reference Python implementation.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/scttfrdmn/agenkit/agenkit-go.svg)](https://pkg.go.dev/github.com/scttfrdmn/agenkit/agenkit-go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/scttfrdmn/agenkit-go.svg)](https://pkg.go.dev/github.com/scttfrdmn/agenkit-go)
 [![Go 1.21+](https://img.shields.io/badge/go-1.21+-00ADD8.svg)](https://golang.org/)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 [![Cross-Language Parity](https://img.shields.io/badge/parity-100%25-success.svg)](../../tests/cross_language/)
@@ -27,8 +27,19 @@ The Go implementation of Agenkit provides exceptional performance (18x faster th
 ## Installation
 
 ```bash
-go get github.com/scttfrdmn/agenkit/agenkit-go
+go get github.com/scttfrdmn/agenkit-go
 ```
+
+## Documentation
+
+Full documentation is available in [agenkit-go/docs/](docs/):
+
+- [Getting Started](docs/GETTING_STARTED.md) — Installation, first agent, goroutine safety, testing
+- [API Reference](docs/API.md) — Complete Go API documentation
+- [Patterns](docs/PATTERNS.md) — All 11 agent patterns with Go examples
+- [Migration Guide](docs/MIGRATION.md) — Migrating to/from Go for 5 languages
+- [Observability](docs/OBSERVABILITY.md) — Tracing, metrics, structured logging
+- [Testing Framework](docs/TESTING_FRAMEWORK.md) — go test patterns, rapid property tests
 
 ## Quick Start
 
@@ -41,7 +52,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
 type EchoAgent struct{}
@@ -80,8 +91,8 @@ func main() {
 
 ```go
 import (
-	"github.com/scttfrdmn/agenkit/agenkit-go/agenkit"
-	"github.com/scttfrdmn/agenkit/agenkit-go/middleware"
+	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/middleware"
 )
 
 func main() {
@@ -113,7 +124,7 @@ func main() {
 #### Sequential Pipeline
 
 ```go
-import "github.com/scttfrdmn/agenkit/agenkit-go/patterns"
+import "github.com/scttfrdmn/agenkit-go/patterns"
 
 // Data flows: Agent1 → Agent2 → Agent3
 pipeline := patterns.NewSequentialAgent([]agenkit.Agent{
@@ -128,7 +139,7 @@ result, err := pipeline.Process(ctx, message)
 #### Parallel Execution
 
 ```go
-import "github.com/scttfrdmn/agenkit/agenkit-go/patterns"
+import "github.com/scttfrdmn/agenkit-go/patterns"
 
 // Execute multiple agents concurrently using goroutines
 parallel := patterns.NewParallelAgent([]agenkit.Agent{
@@ -144,8 +155,8 @@ result, err := parallel.Process(ctx, message)
 
 ```go
 import (
-	"github.com/scttfrdmn/agenkit/agenkit-go/patterns"
-	"github.com/scttfrdmn/agenkit/agenkit-go/adapter"
+	"github.com/scttfrdmn/agenkit-go/patterns"
+	"github.com/scttfrdmn/agenkit-go/adapter"
 )
 
 // Maintains conversation history
@@ -163,7 +174,7 @@ response2, _ := agent.Process(ctx, agenkit.NewMessage("user", "What's its popula
 #### ReAct (Reasoning + Acting)
 
 ```go
-import "github.com/scttfrdmn/agenkit/agenkit-go/patterns"
+import "github.com/scttfrdmn/agenkit-go/patterns"
 
 type CalculatorTool struct{}
 
@@ -195,7 +206,7 @@ result, err := agent.Process(ctx, message)
 #### Chain-of-Thought (CoT)
 
 ```go
-import "github.com/scttfrdmn/agenkit/agenkit-go/techniques/reasoning"
+import "github.com/scttfrdmn/agenkit-go/techniques/reasoning"
 
 // Step-by-step reasoning
 cot := reasoning.NewChainOfThought(myLLM, &reasoning.ChainOfThoughtConfig{
@@ -213,7 +224,7 @@ fmt.Println(steps)
 #### Tree-of-Thought (ToT)
 
 ```go
-import "github.com/scttfrdmn/agenkit/agenkit-go/techniques/reasoning"
+import "github.com/scttfrdmn/agenkit-go/techniques/reasoning"
 
 // Multi-path exploration with backtracking
 tot := reasoning.NewTreeOfThought(myAgent, &reasoning.TreeOfThoughtConfig{
@@ -232,7 +243,7 @@ fmt.Printf("Best path: %v (score: %.2f)\n", path, score)
 #### Self-Consistency
 
 ```go
-import "github.com/scttfrdmn/agenkit/agenkit-go/techniques/reasoning"
+import "github.com/scttfrdmn/agenkit-go/techniques/reasoning"
 
 // Generate multiple reasoning paths and vote
 sc := reasoning.NewSelfConsistency(myCOTAgent, &reasoning.SelfConsistencyConfig{
@@ -250,7 +261,7 @@ fmt.Printf("Consistency: %.2f, Answers: %v\n", consistency, counts)
 
 ```go
 import (
-	"github.com/scttfrdmn/agenkit/agenkit-go/observability"
+	"github.com/scttfrdmn/agenkit-go/observability"
 	"go.opentelemetry.io/otel"
 )
 
@@ -269,7 +280,7 @@ result, err := agent.Process(ctx, message)
 
 ```go
 import (
-	"github.com/scttfrdmn/agenkit/agenkit-go/transport/http"
+	"github.com/scttfrdmn/agenkit-go/transport/http"
 	"net/http"
 )
 
@@ -286,7 +297,7 @@ if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 
 ```go
 import (
-	"github.com/scttfrdmn/agenkit/agenkit-go/transport/grpc"
+	"github.com/scttfrdmn/agenkit-go/transport/grpc"
 	"google.golang.org/grpc"
 )
 
@@ -336,6 +347,7 @@ agenkit-go/
 ├── adapter/                 # LLM adapters
 │   ├── anthropic.go         # Claude API
 │   ├── openai.go            # OpenAI API
+│   ├── openai_compatible.go # OpenAI-compatible services (vLLM, llama.cpp, etc.)
 │   ├── bedrock.go           # AWS Bedrock
 │   └── gemini.go            # Google Gemini
 ├── transport/               # Communication protocols
@@ -355,7 +367,7 @@ agenkit-go/
 
 ## API Reference
 
-See [GoDoc](https://pkg.go.dev/github.com/scttfrdmn/agenkit/agenkit-go) for complete API documentation.
+See [GoDoc](https://pkg.go.dev/github.com/scttfrdmn/agenkit-go) for complete API documentation.
 
 ## Examples
 
@@ -427,7 +439,7 @@ go run tests/cross_language_harness
 ### Calling Python Agents from Go
 
 ```go
-import "github.com/scttfrdmn/agenkit/agenkit-go/transport/http"
+import "github.com/scttfrdmn/agenkit-go/transport/http"
 
 // Call Python agent over HTTP
 pythonAgent := http.NewHTTPClient("http://localhost:8000")
@@ -494,33 +506,33 @@ spec:
             cpu: "500m"
 ```
 
-## Migration from Python
+## Migration Guides
 
-Go follows Python's API closely. Most Python code translates directly:
+### Migrating to Go
 
-**Python**:
-```python
-from agenkit.patterns import SequentialAgent
+Choose your source language for detailed migration guide:
 
-agent = SequentialAgent([agent1, agent2, agent3])
-result = await agent.process(message)
-```
+| From | Guide | Key Benefits |
+|------|-------|-------------|
+| **Python** | [MIGRATE_PYTHON_TO_GO.md](../docs/MIGRATE_PYTHON_TO_GO.md) | 5-20x faster, true parallelism, single binary |
+| **TypeScript** | [MIGRATE_TYPESCRIPT_TO_GO.md](../docs/MIGRATE_TYPESCRIPT_TO_GO.md) | Multi-threaded, better concurrency, backend services |
+| **Rust** | [MIGRATE_RUST_TO_GO.md](../docs/MIGRATE_RUST_TO_GO.md) | Simpler deployment, faster iteration, GC simplification |
+| **C++** | [MIGRATE_CPP_TO_GO.md](../docs/MIGRATE_CPP_TO_GO.md) | Simpler memory, better concurrency, faster compilation |
+| **Zig** | [MIGRATE_ZIG_TO_GO.md](../docs/MIGRATE_ZIG_TO_GO.md) | GC simplification, goroutines, better concurrency |
 
-**Go**:
-```go
-import "github.com/scttfrdmn/agenkit/agenkit-go/patterns"
+### Migrating from Go
 
-agent := patterns.NewSequentialAgent([]agenkit.Agent{agent1, agent2, agent3})
-result, err := agent.Process(ctx, message)
-```
+| To | Guide | Primary Use Case |
+|----|-------|-----------------|
+| **Python** | [MIGRATE_GO_TO_PYTHON.md](../docs/MIGRATE_GO_TO_PYTHON.md) | Prototyping, ML integration, rapid development |
+| **TypeScript** | [MIGRATE_GO_TO_TYPESCRIPT.md](../docs/MIGRATE_GO_TO_TYPESCRIPT.md) | Web frontend, universal deployment, browser support |
+| **Rust** | [MIGRATE_GO_TO_RUST.md](../docs/MIGRATE_GO_TO_RUST.md) | Memory safety, WASM, zero-cost abstractions |
+| **C++** | [MIGRATE_GO_TO_CPP.md](../docs/MIGRATE_GO_TO_CPP.md) | Performance tuning, legacy integration, C ABI |
+| **Zig** | [MIGRATE_GO_TO_ZIG.md](../docs/MIGRATE_GO_TO_ZIG.md) | Embedded systems, minimal runtime, explicit control |
 
-Key differences:
-- Go uses explicit error handling (`err`)
-- Go requires `context.Context` for cancellation
-- Go uses constructors (`New*`) instead of class initialization
-- Go uses struct methods instead of class methods
-
-See [../docs/MIGRATION.md](../docs/MIGRATION.md#python-to-go) for complete migration guide.
+**See also:**
+- [Language Profile: Go](../docs/LANGUAGE_PROFILE_GO.md) - Deep dive into Go idioms and patterns
+- [Migration Index](../docs/MIGRATION_INDEX.md) - Complete migration documentation hub
 
 ## Development
 
@@ -549,7 +561,7 @@ Apache 2.0 - See [LICENSE](../LICENSE) for details.
 ## Links
 
 - **Documentation**: https://agenkit.dev
-- **GoDoc**: https://pkg.go.dev/github.com/scttfrdmn/agenkit/agenkit-go
+- **GoDoc**: https://pkg.go.dev/github.com/scttfrdmn/agenkit-go
 - **GitHub**: https://github.com/scttfrdmn/agenkit
 - **Python**: [../agenkit/](../agenkit/)
 - **TypeScript**: [../agenkit-ts/](../agenkit-ts/)

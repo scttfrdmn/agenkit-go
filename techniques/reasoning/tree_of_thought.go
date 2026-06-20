@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/scttfrdmn/agenkit-go/agenkit"
+	"github.com/scttfrdmn/agenkit-go/memory"
 )
 
 // SearchStrategy defines the tree search strategy.
@@ -50,6 +51,9 @@ type TreeOfThought struct {
 	evaluator       EvaluatorFunc
 	strategy        SearchStrategy
 	pruneThreshold  float64
+	mem             memory.Memory
+	verifier        agenkit.Verifier
+	sessionID       string
 }
 
 // TreeOfThoughtOption is a functional option for configuring TreeOfThought.
@@ -87,6 +91,29 @@ func WithStrategy(strategy SearchStrategy) TreeOfThoughtOption {
 func WithPruneThreshold(threshold float64) TreeOfThoughtOption {
 	return func(tot *TreeOfThought) {
 		tot.pruneThreshold = threshold
+	}
+}
+
+// WithMemory attaches a memory backend for persisting reasoning artifacts.
+// Accepts any memory.Memory; if it also implements memory.ReasoningMemory,
+// StoreArtifact is used for structured storage.
+func WithMemory(mem memory.Memory) TreeOfThoughtOption {
+	return func(tot *TreeOfThought) {
+		tot.mem = mem
+	}
+}
+
+// WithVerifier attaches a ground-truth verifier called after the best candidate is selected.
+func WithVerifier(v agenkit.Verifier) TreeOfThoughtOption {
+	return func(tot *TreeOfThought) {
+		tot.verifier = v
+	}
+}
+
+// WithSessionID sets the session identifier used when storing artifacts to memory.
+func WithSessionID(id string) TreeOfThoughtOption {
+	return func(tot *TreeOfThought) {
+		tot.sessionID = id
 	}
 }
 
@@ -194,7 +221,7 @@ func (tot *TreeOfThought) generateBranches(ctx context.Context, prompt string, n
 				return
 			}
 
-			results <- response.Content
+			results <- response.ContentString()
 		}(i)
 	}
 
@@ -388,7 +415,7 @@ func (tot *TreeOfThought) searchBestFirst(ctx context.Context, tree *ReasoningTr
 //   - num_steps: int
 //   - best_score: float64
 func (tot *TreeOfThought) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
-	query := message.Content
+	query := message.ContentString()
 
 	// Create reasoning tree
 	tree := NewReasoningTree()
@@ -441,7 +468,32 @@ func (tot *TreeOfThought) Process(ctx context.Context, message *agenkit.Message)
 
 	stats := tree.GetStatistics()
 
-	return &agenkit.Message{
+	// Build candidates from non-pruned leaf nodes.
+	leaves := tree.GetLeaves()
+	candidates := make([]agenkit.ScoredCandidate, 0, len(leaves))
+	for _, leaf := range leaves {
+		if leaf.State != NodeStatePruned {
+			candidates = append(candidates, agenkit.ScoredCandidate{
+				Text:  tree.GetPathText(leaf.ID, "\n"),
+				Score: leaf.Score,
+			})
+		}
+	}
+
+	artifactMeta := map[string]interface{}{
+		"search_strategy": string(tot.strategy),
+		"num_nodes":       stats.TotalNodes,
+	}
+
+	if tot.verifier != nil {
+		if result, verr := tot.verifier.Verify(ctx, query, pathText); verr == nil {
+			artifactMeta["verification"] = result
+		}
+	}
+
+	artifact := newArtifact("tree_of_thought", tot.sessionID, candidates, artifactMeta)
+
+	response := &agenkit.Message{
 		Role:    "assistant",
 		Content: pathText,
 		Metadata: map[string]interface{}{
@@ -451,6 +503,19 @@ func (tot *TreeOfThought) Process(ctx context.Context, message *agenkit.Message)
 			"reasoning_path":       reasoningPath,
 			"num_steps":            len(bestPath),
 			"best_score":           bestLeaf.Score,
+			"reasoning_artifact":   artifact,
 		},
-	}, nil
+	}
+
+	if tot.mem != nil {
+		if rm, ok := tot.mem.(memory.ReasoningMemory); ok {
+			_ = rm.StoreArtifact(ctx, tot.sessionID, artifact)
+		} else {
+			artifactMsg := agenkit.NewMessage("assistant", pathText)
+			artifactMsg.Metadata["reasoning_artifact"] = artifact
+			_ = tot.mem.Store(ctx, tot.sessionID, *artifactMsg, nil)
+		}
+	}
+
+	return response, nil
 }

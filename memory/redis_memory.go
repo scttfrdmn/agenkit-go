@@ -30,7 +30,8 @@ import (
 //
 //	memory := NewRedisMemory("redis://localhost:6379", 86400, "agenkit:memory")
 //	err := memory.Store(ctx, "session-123", message, nil)
-//	messages, err := memory.Retrieve(ctx, "session-123", RetrieveOptions{Limit: 10})
+//	limit := 10
+//	messages, err := memory.Retrieve(ctx, "session-123", RetrieveOptions{Limit: &limit})
 //
 // Redis Data Structure:
 //   - Key: "agenkit:memory:{session_id}:messages"
@@ -81,7 +82,7 @@ func (r *RedisMemory) sessionKey(sessionID string) string {
 func (r *RedisMemory) serializeMessage(message agenkit.Message, metadata map[string]interface{}) (string, error) {
 	data := map[string]interface{}{
 		"role":     message.Role,
-		"content":  message.Content,
+		"content":  message.ContentString(),
 		"metadata": metadata,
 	}
 	bytes, err := json.Marshal(data)
@@ -154,9 +155,9 @@ func (r *RedisMemory) Retrieve(ctx context.Context, sessionID string, opts Retri
 	key := r.sessionKey(sessionID)
 
 	// Set default limit
-	limit := opts.Limit
-	if limit <= 0 {
-		limit = 10
+	limit := 10
+	if opts.Limit != nil {
+		limit = *opts.Limit
 	}
 
 	// Get messages (most recent first)
@@ -260,7 +261,8 @@ func (r *RedisMemory) Retrieve(ctx context.Context, sessionID string, opts Retri
 // Simple implementation: Returns a message with concatenated content.
 // Production use should use LLM-based summarization.
 func (r *RedisMemory) Summarize(ctx context.Context, sessionID string, opts SummarizeOptions) (agenkit.Message, error) {
-	messages, err := r.Retrieve(ctx, sessionID, RetrieveOptions{Limit: 100})
+	limit := 100
+	messages, err := r.Retrieve(ctx, sessionID, RetrieveOptions{Limit: &limit})
 	if err != nil {
 		return agenkit.Message{}, err
 	}
@@ -281,7 +283,7 @@ func (r *RedisMemory) Summarize(ctx context.Context, sessionID string, opts Summ
 
 	for i := 0; i < maxMessages; i++ {
 		msg := messages[i]
-		preview := msg.Content
+		preview := msg.ContentString()
 		if len(preview) > 100 {
 			preview = preview[:100] + "..."
 		}

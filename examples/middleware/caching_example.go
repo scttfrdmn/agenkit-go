@@ -73,11 +73,15 @@ func (a *SlowAgent) Capabilities() []string {
 	return []string{"processing"}
 }
 
+func (a *SlowAgent) Introspect() *agenkit.IntrospectionResult {
+	return agenkit.DefaultIntrospectionResult(a)
+}
+
 func (a *SlowAgent) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
 	// Simulate expensive operation (e.g., LLM API call, database query)
 	time.Sleep(500 * time.Millisecond)
 
-	response := agenkit.NewMessage("agent", fmt.Sprintf("Processed: %s", message.Content))
+	response := agenkit.NewMessage("agent", fmt.Sprintf("Processed: %s", message.ContentString()))
 	response.WithMetadata("processing_time", 0.5)
 	return response, nil
 }
@@ -113,7 +117,7 @@ func scenario1BasicCaching() {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Printf("  Response: %s\n", response.Content)
+	fmt.Printf("  Response: %s\n", response.ContentString())
 	fmt.Printf("  Time: %dms\n", elapsed.Milliseconds())
 	fmt.Println()
 
@@ -126,7 +130,7 @@ func scenario1BasicCaching() {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Printf("  Response: %s\n", response.Content)
+	fmt.Printf("  Response: %s\n", response.ContentString())
 	fmt.Printf("  Time: %dms\n", elapsed.Milliseconds())
 	fmt.Println()
 
@@ -371,7 +375,7 @@ func scenario5CustomKeyGenerator() {
 
 	// Key generator that ignores metadata
 	contentOnlyKey := func(message *agenkit.Message) string {
-		return fmt.Sprintf("key:%s", message.Content)
+		return fmt.Sprintf("key:%s", message.ContentString())
 	}
 
 	agent := NewSlowAgent("slow_agent")

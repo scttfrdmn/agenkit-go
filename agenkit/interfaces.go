@@ -10,9 +10,46 @@ import (
 // Message represents a message exchanged between agents or tools.
 type Message struct {
 	Role      string                 `json:"role"`
-	Content   string                 `json:"content"`
+	Content   any                    `json:"content"`
 	Metadata  map[string]interface{} `json:"metadata"`
 	Timestamp time.Time              `json:"timestamp"`
+}
+
+// ContentString returns the message content as a string.
+// For string content it returns the value directly; for nil it returns "";
+// for any other type it returns a fmt.Sprintf("%v") representation.
+func (m *Message) ContentString() string {
+	switch v := m.Content.(type) {
+	case string:
+		return v
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// ContentBlocks returns structured content blocks if the Content field holds
+// a []interface{} value (as set by multimodal adapters), or falls back to
+// Metadata["content_blocks"] for backward compatibility with v0.58.0 adapters.
+func (m *Message) ContentBlocks() []interface{} {
+	// Prefer content field when it already holds a block slice.
+	if blocks, ok := m.Content.([]interface{}); ok {
+		return blocks
+	}
+	// Backward-compat: v0.58.0 adapters stored blocks in metadata.
+	if m.Metadata == nil {
+		return nil
+	}
+	blocks, ok := m.Metadata["content_blocks"]
+	if !ok {
+		return nil
+	}
+	s, ok := blocks.([]interface{})
+	if !ok {
+		return nil
+	}
+	return s
 }
 
 // NewMessage creates a new message with the given role and content.
@@ -66,9 +103,17 @@ func (m *Message) Validate() error {
 		return fmt.Errorf("invalid message role: %s. Must be one of: user, assistant, system, tool, agent", m.Role)
 	}
 
-	// Content validation - max 1MB
-	contentSize := len(m.Content)
-	maxContentSize := 1024 * 1024 // 1MB
+	// Content validation - max 16MB (aligned with other languages)
+	maxContentSize := 16 * 1024 * 1024 // 16MB
+	var contentSize int
+	switch v := m.Content.(type) {
+	case string:
+		contentSize = len(v)
+	case nil:
+		contentSize = 0
+	default:
+		contentSize = len(fmt.Sprintf("%v", v))
+	}
 	if contentSize > maxContentSize {
 		return fmt.Errorf("message content exceeds maximum size of %d bytes (got %d bytes)", maxContentSize, contentSize)
 	}
@@ -82,7 +127,7 @@ func (m *Message) Validate() error {
 
 		// Validate each key and value
 		maxKeyLength := 50
-		maxValueSize := 10 * 1024 // 10KB
+		maxValueSize := 16 * 1024 * 1024 // 16MB (aligned with content limit)
 
 		for key, value := range m.Metadata {
 			// Key length validation
@@ -209,6 +254,34 @@ type StreamingAgent interface {
 	Stream(ctx context.Context, message *Message) (<-chan *Message, <-chan error)
 }
 
+// VerificationResult is the outcome of a Verifier check.
+type VerificationResult struct {
+	Passed bool
+	Score  float64 // 0.0–1.0; 1.0 = fully correct
+	Reason string
+}
+
+// Verifier checks a candidate answer against ground truth.
+// Unlike EvaluatorFunc (heuristic float64), Verifier is exact and binary.
+type Verifier interface {
+	Verify(ctx context.Context, question, answer string) (VerificationResult, error)
+}
+
+// ScoredCandidate pairs a candidate text with its evaluation score.
+type ScoredCandidate struct {
+	Text  string
+	Score float64
+}
+
+// ReasoningArtifact is structured intermediate reasoning output stored in message metadata.
+type ReasoningArtifact interface {
+	Technique() string // "tree_of_thought", "chain_of_thought", etc.
+	SessionID() string
+	Candidates() []ScoredCandidate
+	BestCandidate() ScoredCandidate
+	Metadata() map[string]interface{}
+}
+
 // Tool represents an executable capability that agents can use.
 type Tool interface {
 	// Name returns the unique identifier for this tool.
@@ -218,5 +291,5 @@ type Tool interface {
 	Description() string
 
 	// Execute runs the tool with the given parameters and returns a result.
-	Execute(ctx context.Context, params map[string]interface{}) (*ToolResult, error)
+	Execute(ctx context.Context, params map[string]any) (*ToolResult, error)
 }

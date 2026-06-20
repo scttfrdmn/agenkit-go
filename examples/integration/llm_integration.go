@@ -63,7 +63,7 @@ func exampleOpenAI() {
 		return
 	}
 
-	fmt.Printf("  🤖 OpenAI: %s\n\n", response.Content)
+	fmt.Printf("  🤖 OpenAI: %s\n\n", response.ContentString())
 }
 
 // Example 2: Anthropic Integration (Claude)
@@ -92,7 +92,7 @@ func exampleAnthropic() {
 		return
 	}
 
-	fmt.Printf("  🤖 Claude: %s\n\n", response.Content)
+	fmt.Printf("  🤖 Claude: %s\n\n", response.ContentString())
 }
 
 // Example 3: Ollama Integration (Local models)
@@ -117,7 +117,7 @@ func exampleOllama() {
 		return
 	}
 
-	fmt.Printf("  🤖 Ollama: %s\n\n", response.Content)
+	fmt.Printf("  🤖 Ollama: %s\n\n", response.ContentString())
 }
 
 // Example 4: Production-Ready LLM with Middleware
@@ -142,7 +142,7 @@ func exampleProductionMiddleware() {
 				&middleware.RetryConfig{
 					MaxRetries:        3,
 					InitialDelay:      1.0,
-					BackoffMultiplier: 2.0,
+					RetryMultiplier: 2.0,
 				},
 			),
 			&middleware.TimeoutConfig{
@@ -169,7 +169,7 @@ func exampleProductionMiddleware() {
 		return
 	}
 
-	fmt.Printf("  ✅ Success: %s\n\n", response.Content)
+	fmt.Printf("  ✅ Success: %s\n\n", response.ContentString())
 }
 
 // Example 5: Streaming LLM Responses
@@ -204,7 +204,7 @@ func exampleStreaming() {
 			fmt.Printf("\n  ❌ Stream error: %v\n\n", chunk.Error)
 			return
 		}
-		fmt.Print(chunk.Message.Content)
+		fmt.Print(chunk.Message.ContentString())
 	}
 	fmt.Println("")
 }

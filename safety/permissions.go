@@ -257,7 +257,7 @@ func (s *Sandbox) IsCommandAllowed(command string) (bool, *string) {
 	return true, nil
 }
 
-// IsSQLOperationAllowed checks if SQL operation is allowed.
+// IsSqlOperationAllowed checks if SQL operation is allowed.
 //
 // Args:
 //
@@ -267,7 +267,7 @@ func (s *Sandbox) IsCommandAllowed(command string) (bool, *string) {
 //
 //	isAllowed: true if operation is allowed
 //	errorMessage: Error message if denied (nil if allowed)
-func (s *Sandbox) IsSQLOperationAllowed(sql string) (bool, *string) {
+func (s *Sandbox) IsSqlOperationAllowed(sql string) (bool, *string) {
 	if sql == "" {
 		return true, nil
 	}
@@ -446,7 +446,7 @@ func (m *PermissionMiddleware) Process(ctx context.Context, message *agenkit.Mes
 	}
 
 	// Check for dangerous operations in message content
-	contentStr := strings.ToLower(message.Content)
+	contentStr := strings.ToLower(message.ContentString())
 
 	// Detect file operations
 	if strings.Contains(contentStr, "read file") || strings.Contains(contentStr, "write file") || strings.Contains(contentStr, "delete file") {

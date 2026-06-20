@@ -7,6 +7,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
@@ -38,7 +39,7 @@ import (
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	fmt.Println(response.Content)
+//	fmt.Println(response.ContentString())
 //
 // Swapping providers:
 //
@@ -53,7 +54,7 @@ import (
 //	    log.Fatal(err)
 //	}
 //	for chunk := range stream {
-//	    fmt.Print(chunk.Content)
+//	    fmt.Print(chunk.ContentString())
 //	}
 type LLM interface {
 	// Complete generates a single completion from the LLM.
@@ -121,7 +122,7 @@ type LLM interface {
 	//	    log.Fatal(err)
 	//	}
 	//	for chunk := range stream {
-	//	    fmt.Print(chunk.Content)
+	//	    fmt.Print(chunk.ContentString())
 	//	}
 	//
 	// Note:
@@ -175,24 +176,64 @@ type CallOptions struct {
 // CallOption is a functional option for configuring LLM calls.
 type CallOption func(*CallOptions)
 
-// WithTemperature sets the sampling temperature (typically 0.0-2.0).
+// WithTemperature sets the sampling temperature (0.0-2.0).
+// Panics if temperature is outside the valid range.
 func WithTemperature(temperature float64) CallOption {
+	if temperature < 0.0 || temperature > 2.0 {
+		panic(fmt.Sprintf("temperature must be between 0 and 2, got %v", temperature))
+	}
 	return func(opts *CallOptions) {
 		opts.Temperature = &temperature
 	}
 }
 
 // WithMaxTokens sets the maximum number of tokens to generate.
+// Panics if maxTokens is not positive.
 func WithMaxTokens(maxTokens int) CallOption {
+	if maxTokens <= 0 {
+		panic(fmt.Sprintf("max_tokens must be positive, got %d", maxTokens))
+	}
 	return func(opts *CallOptions) {
 		opts.MaxTokens = &maxTokens
 	}
 }
 
-// WithTopP sets the nucleus sampling parameter.
+// WithTopP sets the nucleus sampling parameter (0.0-1.0).
+// Panics if topP is outside the valid range.
 func WithTopP(topP float64) CallOption {
+	if topP < 0.0 || topP > 1.0 {
+		panic(fmt.Sprintf("top_p must be between 0 and 1, got %v", topP))
+	}
 	return func(opts *CallOptions) {
 		opts.TopP = &topP
+	}
+}
+
+// WithFrequencyPenalty sets the frequency penalty (-2.0 to 2.0).
+// Panics if frequencyPenalty is outside the valid range.
+func WithFrequencyPenalty(frequencyPenalty float64) CallOption {
+	if frequencyPenalty < -2.0 || frequencyPenalty > 2.0 {
+		panic(fmt.Sprintf("frequency_penalty must be between -2 and 2, got %v", frequencyPenalty))
+	}
+	return func(opts *CallOptions) {
+		if opts.Extra == nil {
+			opts.Extra = make(map[string]interface{})
+		}
+		opts.Extra["frequency_penalty"] = frequencyPenalty
+	}
+}
+
+// WithPresencePenalty sets the presence penalty (-2.0 to 2.0).
+// Panics if presencePenalty is outside the valid range.
+func WithPresencePenalty(presencePenalty float64) CallOption {
+	if presencePenalty < -2.0 || presencePenalty > 2.0 {
+		panic(fmt.Sprintf("presence_penalty must be between -2 and 2, got %v", presencePenalty))
+	}
+	return func(opts *CallOptions) {
+		if opts.Extra == nil {
+			opts.Extra = make(map[string]interface{})
+		}
+		opts.Extra["presence_penalty"] = presencePenalty
 	}
 }
 

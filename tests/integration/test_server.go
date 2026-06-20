@@ -38,23 +38,16 @@ func (a *CrossLanguageTestAgent) Capabilities() []string {
 
 // Introspect returns the agent's introspection result.
 func (a *CrossLanguageTestAgent) Introspect() *agenkit.IntrospectionResult {
-	return &agenkit.IntrospectionResult{
-		AgentName:     a.Name(),
-		Capabilities:  a.Capabilities(),
-		InternalState: map[string]interface{}{},
-		Metadata: map[string]interface{}{
-			"type": "test_agent",
-		},
-	}
+	return agenkit.DefaultIntrospectionResult(a)
 }
 
 // Process echoes the message back with metadata.
 func (a *CrossLanguageTestAgent) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
 	return &agenkit.Message{
 		Role:    "agent",
-		Content: fmt.Sprintf("Echo: %s", message.Content),
+		Content: fmt.Sprintf("Echo: %s", message.ContentString()),
 		Metadata: map[string]interface{}{
-			"original_content":  message.Content,
+			"original_content":  message.ContentString(),
 			"original_role":     message.Role,
 			"original_metadata": message.Metadata,
 			"server_language":   "go",

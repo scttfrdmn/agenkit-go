@@ -20,7 +20,7 @@ import (
 //
 // Example:
 //
-//	llm := NewAnthropicLLM("sk-ant-...", "claude-3-5-sonnet-20241022")
+//	llm := NewAnthropicLLM("sk-ant-...", "claude-sonnet-4-6")
 //	messages := []*agenkit.Message{
 //	    agenkit.NewMessage("user", "Hello!"),
 //	}
@@ -28,7 +28,7 @@ import (
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	fmt.Println(response.Content)
+//	fmt.Println(response.ContentString())
 //
 // Streaming example:
 //
@@ -37,7 +37,7 @@ import (
 //	    log.Fatal(err)
 //	}
 //	for chunk := range stream {
-//	    fmt.Print(chunk.Content)
+//	    fmt.Print(chunk.ContentString())
 //	}
 //
 // Provider-specific options:
@@ -57,25 +57,48 @@ type AnthropicLLM struct {
 	httpClient *http.Client
 }
 
+// AnthropicOption is a functional option for configuring AnthropicLLM.
+type AnthropicOption func(*AnthropicLLM)
+
+// WithBaseURL overrides the Anthropic API base URL.
+//
+// Use this to point at an Anthropic-compatible proxy, a corporate gateway,
+// or a self-hosted inference server.
+//
+// Example:
+//
+//	llm := NewAnthropicLLM("key", "claude-sonnet-4-6", WithBaseURL("https://my-proxy.internal/v1"))
+func WithBaseURL(baseURL string) AnthropicOption {
+	return func(a *AnthropicLLM) {
+		a.baseURL = baseURL
+	}
+}
+
 // NewAnthropicLLM creates a new Anthropic LLM adapter.
 //
 // Parameters:
 //   - apiKey: Anthropic API key
-//   - model: Model identifier (e.g., "claude-3-5-sonnet-20241022")
+//   - model: Model identifier (e.g., "claude-sonnet-4-6")
+//   - opts: Optional AnthropicOptions (e.g., WithBaseURL)
 //
 // Example:
 //
-//	llm := NewAnthropicLLM("sk-ant-...", "claude-3-5-sonnet-20241022")
-func NewAnthropicLLM(apiKey, model string) *AnthropicLLM {
+//	llm := NewAnthropicLLM("sk-ant-...", "claude-sonnet-4-6")
+//	llm := NewAnthropicLLM("key", "claude-sonnet-4-6", WithBaseURL("https://proxy.internal/v1"))
+func NewAnthropicLLM(apiKey, model string, opts ...AnthropicOption) *AnthropicLLM {
 	if model == "" {
-		model = "claude-3-haiku-20240307"
+		model = "claude-sonnet-4-6"
 	}
-	return &AnthropicLLM{
+	a := &AnthropicLLM{
 		apiKey:     apiKey,
 		model:      model,
 		baseURL:    "https://api.anthropic.com/v1",
 		httpClient: &http.Client{},
 	}
+	for _, opt := range opts {
+		opt(a)
+	}
+	return a
 }
 
 // Model returns the model identifier.
@@ -165,7 +188,7 @@ type anthropicDelta struct {
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	fmt.Println(response.Content)
+//	fmt.Println(response.ContentString())
 //	fmt.Printf("Usage: %+v\n", response.Metadata["usage"])
 func (a *AnthropicLLM) Complete(ctx context.Context, messages []*agenkit.Message, opts ...CallOption) (*agenkit.Message, error) {
 	// Build options
@@ -206,10 +229,19 @@ func (a *AnthropicLLM) Complete(ctx context.Context, messages []*agenkit.Message
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Extract text content
+	// Extract content; Content field holds the text for backward compatibility.
+	// When multiple blocks are present (tool_use, vision), all text blocks are joined
+	// and the raw block list is stored in Metadata["content_blocks"] for consumers
+	// that need the full structured response.
 	var content string
 	if len(anthropicResp.Content) > 0 {
-		content = anthropicResp.Content[0].Text
+		var textParts []string
+		for _, block := range anthropicResp.Content {
+			if block.Type == "text" && block.Text != "" {
+				textParts = append(textParts, block.Text)
+			}
+		}
+		content = strings.Join(textParts, "")
 	}
 
 	// Convert to Agenkit Message
@@ -221,6 +253,18 @@ func (a *AnthropicLLM) Complete(ctx context.Context, messages []*agenkit.Message
 	}
 	response.Metadata["stop_reason"] = anthropicResp.StopReason
 	response.Metadata["id"] = anthropicResp.ID
+
+	// Store content_blocks for multimodal consumers when multiple blocks present
+	if len(anthropicResp.Content) > 1 {
+		blocks := make([]interface{}, len(anthropicResp.Content))
+		for i, b := range anthropicResp.Content {
+			blocks[i] = map[string]interface{}{
+				"type": b.Type,
+				"text": b.Text,
+			}
+		}
+		response.Metadata["content_blocks"] = blocks
+	}
 
 	return response, nil
 }
@@ -246,7 +290,7 @@ func (a *AnthropicLLM) Complete(ctx context.Context, messages []*agenkit.Message
 //	    log.Fatal(err)
 //	}
 //	for chunk := range stream {
-//	    fmt.Print(chunk.Content)
+//	    fmt.Print(chunk.ContentString())
 //	}
 func (a *AnthropicLLM) Stream(ctx context.Context, messages []*agenkit.Message, opts ...CallOption) (<-chan *agenkit.Message, error) {
 	// Build options
@@ -342,7 +386,7 @@ func (a *AnthropicLLM) convertMessages(messages []*agenkit.Message) ([]anthropic
 	for _, msg := range messages {
 		// Extract system message
 		if msg.Role == "system" {
-			systemMessage = msg.Content
+			systemMessage = msg.ContentString()
 			continue
 		}
 
@@ -356,7 +400,7 @@ func (a *AnthropicLLM) convertMessages(messages []*agenkit.Message) ([]anthropic
 
 		anthropicMessages = append(anthropicMessages, anthropicMessage{
 			Role:    role,
-			Content: msg.Content,
+			Content: msg.ContentString(),
 		})
 	}
 
@@ -411,7 +455,7 @@ func (a *AnthropicLLM) makeRequest(ctx context.Context, req anthropicRequest) (*
 //
 // Example:
 //
-//	llm := NewAnthropicLLM("sk-ant-...", "claude-3-5-sonnet-20241022")
+//	llm := NewAnthropicLLM("sk-ant-...", "claude-sonnet-4-6")
 //	client := llm.Unwrap().(*http.Client)
 //	// Use for custom requests
 func (a *AnthropicLLM) Unwrap() interface{} {

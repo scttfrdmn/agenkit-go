@@ -68,6 +68,10 @@ func (a *UnstableExternalAPI) Capabilities() []string {
 	return []string{"weather_data"}
 }
 
+func (a *UnstableExternalAPI) Introspect() *agenkit.IntrospectionResult {
+	return agenkit.DefaultIntrospectionResult(a)
+}
+
 func (a *UnstableExternalAPI) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
 	a.callCount++
 
@@ -120,7 +124,7 @@ func example1BasicCircuitBreaker() {
 		if err != nil {
 			fmt.Printf("❌ Call %d: %v\n", i+1, err)
 		} else {
-			fmt.Printf("✅ Call %d: %s\n", i+1, response.Content)
+			fmt.Printf("✅ Call %d: %s\n", i+1, response.ContentString())
 		}
 	}
 
@@ -138,7 +142,7 @@ func example1BasicCircuitBreaker() {
 				fmt.Printf("❌ Call %d: Failed - %v\n", i+4, err)
 			}
 		} else {
-			fmt.Printf("✅ Call %d: %s\n", i+4, response.Content)
+			fmt.Printf("✅ Call %d: %s\n", i+4, response.ContentString())
 		}
 	}
 
@@ -205,7 +209,7 @@ func example2RecoveryScenario() {
 	if err != nil {
 		fmt.Printf("❌ Failed: %v\n", err)
 	} else {
-		fmt.Printf("✅ Success: %s\n", response.Content)
+		fmt.Printf("✅ Success: %s\n", response.ContentString())
 		fmt.Printf("   Circuit State: %s\n", protectedAPI.State())
 	}
 
@@ -215,7 +219,7 @@ func example2RecoveryScenario() {
 	if err != nil {
 		fmt.Printf("❌ Failed: %v\n", err)
 	} else {
-		fmt.Printf("✅ Success: %s\n", response.Content)
+		fmt.Printf("✅ Success: %s\n", response.ContentString())
 		fmt.Printf("   Circuit State: %s 🎉\n", protectedAPI.State())
 	}
 
@@ -253,6 +257,10 @@ func (d *FlakeyDatabase) Capabilities() []string {
 	return []string{"query"}
 }
 
+func (d *FlakeyDatabase) Introspect() *agenkit.IntrospectionResult {
+	return agenkit.DefaultIntrospectionResult(d)
+}
+
 func (d *FlakeyDatabase) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
 	idx := d.callCount % len(d.failurePattern)
 	d.callCount++
@@ -277,9 +285,9 @@ func example3CircuitBreakerWithRetry() {
 
 	// Layer 1: Retry for transient failures (inner)
 	retryConfig := middleware.RetryConfig{
-		MaxAttempts:       2,
-		InitialBackoff:    100 * time.Millisecond,
-		BackoffMultiplier: 2.0,
+		MaxRetries:       2,
+		InitialRetryDelay:    100 * time.Millisecond,
+		RetryMultiplier: 2.0,
 	}
 	retryDB := middleware.NewRetryDecorator(db, retryConfig)
 
@@ -306,7 +314,7 @@ func example3CircuitBreakerWithRetry() {
 				fmt.Printf("❌ Call %d: Failed after retries\n", i+1)
 			}
 		} else {
-			fmt.Printf("✅ Call %d: Success - %s\n", i+1, response.Content)
+			fmt.Printf("✅ Call %d: Success - %s\n", i+1, response.ContentString())
 		}
 
 		time.Sleep(100 * time.Millisecond)
@@ -339,6 +347,10 @@ func (s *OverloadedService) Name() string {
 
 func (s *OverloadedService) Capabilities() []string {
 	return []string{"process_job"}
+}
+
+func (s *OverloadedService) Introspect() *agenkit.IntrospectionResult {
+	return agenkit.DefaultIntrospectionResult(s)
 }
 
 func (s *OverloadedService) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {

@@ -57,8 +57,8 @@ func TestSequentialAgent_BasicProcess(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Content != "final" {
-		t.Errorf("expected 'final', got '%s'", result.Content)
+	if result.ContentString() != "final" {
+		t.Errorf("expected 'final', got '%s'", result.ContentString())
 	}
 }
 
@@ -68,19 +68,19 @@ func TestSequentialAgent_PipelineTransformation(t *testing.T) {
 	agent1 := &extendedMockAgent{
 		name: "agent1",
 		processFunc: func(ctx context.Context, msg *agenkit.Message) (*agenkit.Message, error) {
-			return agenkit.NewMessage("assistant", msg.Content+" -> stage1"), nil
+			return agenkit.NewMessage("assistant", msg.ContentString()+" -> stage1"), nil
 		},
 	}
 	agent2 := &extendedMockAgent{
 		name: "agent2",
 		processFunc: func(ctx context.Context, msg *agenkit.Message) (*agenkit.Message, error) {
-			return agenkit.NewMessage("assistant", msg.Content+" -> stage2"), nil
+			return agenkit.NewMessage("assistant", msg.ContentString()+" -> stage2"), nil
 		},
 	}
 	agent3 := &extendedMockAgent{
 		name: "agent3",
 		processFunc: func(ctx context.Context, msg *agenkit.Message) (*agenkit.Message, error) {
-			return agenkit.NewMessage("assistant", msg.Content+" -> stage3"), nil
+			return agenkit.NewMessage("assistant", msg.ContentString()+" -> stage3"), nil
 		},
 	}
 
@@ -96,8 +96,8 @@ func TestSequentialAgent_PipelineTransformation(t *testing.T) {
 	}
 
 	expected := "input -> stage1 -> stage2 -> stage3"
-	if result.Content != expected {
-		t.Errorf("expected '%s', got '%s'", expected, result.Content)
+	if result.ContentString() != expected {
+		t.Errorf("expected '%s', got '%s'", expected, result.ContentString())
 	}
 }
 
@@ -136,10 +136,20 @@ func TestSequentialAgent_MetadataPreservation(t *testing.T) {
 		t.Errorf("expected pipeline_length=2, got %v", result.Metadata["pipeline_length"])
 	}
 
-	stages, ok := result.Metadata["pipeline_stages"].([]map[string]interface{})
+	// pipeline_stages is stored as []interface{} for JSON marshaling compatibility
+	stagesInterface, ok := result.Metadata["pipeline_stages"].([]interface{})
 	if !ok {
-		t.Fatal("expected pipeline_stages to be []map[string]interface{}")
+		t.Fatal("expected pipeline_stages to be []interface{}")
 	}
+
+	// Convert to []map[string]interface{} for easier testing
+	stages := make([]map[string]interface{}, 0, len(stagesInterface))
+	for _, s := range stagesInterface {
+		if stage, ok := s.(map[string]interface{}); ok {
+			stages = append(stages, stage)
+		}
+	}
+
 	if len(stages) != 2 {
 		t.Errorf("expected 2 stages, got %d", len(stages))
 	}
@@ -294,8 +304,8 @@ func TestSequentialAgent_SingleAgent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Content != "result" {
-		t.Errorf("expected 'result', got '%s'", result.Content)
+	if result.ContentString() != "result" {
+		t.Errorf("expected 'result', got '%s'", result.ContentString())
 	}
 
 	// Check metadata
@@ -321,9 +331,18 @@ func TestSequentialAgent_StageMetadata(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	stages, ok := result.Metadata["pipeline_stages"].([]map[string]interface{})
+	// pipeline_stages is stored as []interface{} for JSON marshaling compatibility
+	stagesInterface, ok := result.Metadata["pipeline_stages"].([]interface{})
 	if !ok {
 		t.Fatal("expected pipeline_stages metadata")
+	}
+
+	// Convert to []map[string]interface{} for easier testing
+	stages := make([]map[string]interface{}, 0, len(stagesInterface))
+	for _, s := range stagesInterface {
+		if stage, ok := s.(map[string]interface{}); ok {
+			stages = append(stages, stage)
+		}
 	}
 
 	expectedAgents := []string{"extractor", "transformer", "validator"}

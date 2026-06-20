@@ -67,6 +67,10 @@ func (a *UnreliableAgent) Capabilities() []string {
 	return []string{"translation"}
 }
 
+func (a *UnreliableAgent) Introspect() *agenkit.IntrospectionResult {
+	return agenkit.DefaultIntrospectionResult(a)
+}
+
 func (a *UnreliableAgent) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
 	a.attemptCount++
 	fmt.Printf("  Attempt %d: ", a.attemptCount)
@@ -79,7 +83,7 @@ func (a *UnreliableAgent) Process(ctx context.Context, message *agenkit.Message)
 
 	// Success
 	fmt.Println("✓ Success")
-	return agenkit.NewMessage("assistant", fmt.Sprintf("Translated: %s", message.Content)), nil
+	return agenkit.NewMessage("assistant", fmt.Sprintf("Translated: %s", message.ContentString())), nil
 }
 
 // Example 1: Basic Retry
@@ -94,10 +98,10 @@ func example1BasicRetry() {
 
 	// Wrap with retry middleware
 	retryConfig := middleware.RetryConfig{
-		MaxAttempts:       5,
-		InitialBackoff:    100 * time.Millisecond,
-		MaxBackoff:        2 * time.Second,
-		BackoffMultiplier: 2.0,
+		MaxRetries:       5,
+		InitialRetryDelay:    100 * time.Millisecond,
+		MaxRetryDelay:        2 * time.Second,
+		RetryMultiplier: 2.0,
 	}
 	agent := middleware.NewRetryDecorator(baseAgent, retryConfig)
 
@@ -113,7 +117,7 @@ func example1BasicRetry() {
 	if err != nil {
 		fmt.Printf("\n❌ Final failure after retries: %v\n", err)
 	} else {
-		fmt.Printf("\n✓ Success: %s\n", result.Content)
+		fmt.Printf("\n✓ Success: %s\n", result.ContentString())
 		fmt.Printf("  Total time: %dms\n", elapsed.Milliseconds())
 		fmt.Printf("  Total attempts: %d\n", baseAgent.attemptCount)
 	}
@@ -136,10 +140,10 @@ func example2MaxRetriesExceeded() {
 
 	// Wrap with retry middleware (3 attempts)
 	retryConfig := middleware.RetryConfig{
-		MaxAttempts:       3,
-		InitialBackoff:    50 * time.Millisecond,
-		MaxBackoff:        1 * time.Second,
-		BackoffMultiplier: 2.0,
+		MaxRetries:       3,
+		InitialRetryDelay:    50 * time.Millisecond,
+		MaxRetryDelay:        1 * time.Second,
+		RetryMultiplier: 2.0,
 	}
 	agent := middleware.NewRetryDecorator(baseAgent, retryConfig)
 
@@ -179,10 +183,10 @@ func example3RateLimitHandling() {
 
 	// Retry with longer delays (respecting rate limits)
 	retryConfig := middleware.RetryConfig{
-		MaxAttempts:       4,
-		InitialBackoff:    500 * time.Millisecond, // Longer initial delay
-		MaxBackoff:        5 * time.Second,
-		BackoffMultiplier: 2.0,
+		MaxRetries:       4,
+		InitialRetryDelay:    500 * time.Millisecond, // Longer initial delay
+		MaxRetryDelay:        5 * time.Second,
+		RetryMultiplier: 2.0,
 	}
 	agent := middleware.NewRetryDecorator(rateLimitAgent, retryConfig)
 
@@ -197,7 +201,7 @@ func example3RateLimitHandling() {
 	if err != nil {
 		fmt.Printf("\n❌ Failed: %v\n", err)
 	} else {
-		fmt.Printf("\n✓ Success after rate limit: %s\n", result.Content)
+		fmt.Printf("\n✓ Success after rate limit: %s\n", result.ContentString())
 		fmt.Printf("  Total time: %dms\n", elapsed.Milliseconds())
 	}
 
@@ -242,9 +246,9 @@ func main() {
    - Service-to-service communication
 
 2. CONFIGURATION:
-   - MaxAttempts: How many times to retry (3-5 typical)
+   - MaxRetries: How many times to retry (3-5 typical)
    - InitialDelay: First retry delay (100-500ms typical)
-   - BackoffMultiplier: How fast to increase delay (2.0 typical)
+   - RetryMultiplier: How fast to increase delay (2.0 typical)
    - MaxDelay: Cap on retry delay (2-10s typical)
 
 3. EXPONENTIAL BACKOFF:

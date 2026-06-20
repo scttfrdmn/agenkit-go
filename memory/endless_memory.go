@@ -79,7 +79,7 @@ func NewEndlessMemory(endlessClient EndlessClient) *EndlessMemory {
 func (e *EndlessMemory) messageToMap(message agenkit.Message) map[string]interface{} {
 	return map[string]interface{}{
 		"role":    message.Role,
-		"content": message.Content,
+		"content": message.ContentString(),
 	}
 }
 
@@ -127,9 +127,9 @@ func (e *EndlessMemory) Store(ctx context.Context, sessionID string, message age
 //	List of messages from compressed context
 func (e *EndlessMemory) Retrieve(ctx context.Context, sessionID string, opts RetrieveOptions) ([]agenkit.Message, error) {
 	// Set default limit
-	limit := opts.Limit
-	if limit <= 0 {
-		limit = 10
+	limit := 10
+	if opts.Limit != nil {
+		limit = *opts.Limit
 	}
 
 	// Retrieve from endless

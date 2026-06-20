@@ -81,8 +81,8 @@ func TestSelfConsistencyBasic(t *testing.T) {
 	}
 
 	// Check response content
-	if !strings.Contains(response.Content, "42") {
-		t.Errorf("Expected answer to contain '42', got: %s", response.Content)
+	if !strings.Contains(response.ContentString(), "42") {
+		t.Errorf("Expected answer to contain '42', got: %s", response.ContentString())
 	}
 
 	// Check metadata
@@ -148,8 +148,8 @@ func TestSelfConsistencyMajorityVoting(t *testing.T) {
 	}
 
 	// Majority vote should be "Paris" (3/5 = 0.6)
-	if !strings.Contains(strings.ToLower(response.Content), "paris") {
-		t.Errorf("Expected answer to contain 'paris', got: %s", response.Content)
+	if !strings.Contains(strings.ToLower(response.ContentString()), "paris") {
+		t.Errorf("Expected answer to contain 'paris', got: %s", response.ContentString())
 	}
 
 	consistencyScore := response.Metadata["consistency_score"].(float64)
@@ -184,8 +184,8 @@ func TestSelfConsistencyWeightedVoting(t *testing.T) {
 	}
 
 	// Weighted vote should favor "London" despite fewer occurrences
-	if !strings.Contains(strings.ToLower(response.Content), "london") {
-		t.Errorf("Expected answer to contain 'london', got: %s", response.Content)
+	if !strings.Contains(strings.ToLower(response.ContentString()), "london") {
+		t.Errorf("Expected answer to contain 'london', got: %s", response.ContentString())
 	}
 }
 
@@ -213,8 +213,8 @@ func TestSelfConsistencyFirstStrategy(t *testing.T) {
 	}
 
 	// Should return the first answer (answers[0])
-	if !strings.Contains(response.Content, "A") {
-		t.Errorf("Expected answer to contain 'A', got: %s", response.Content)
+	if !strings.Contains(response.ContentString(), "A") {
+		t.Errorf("Expected answer to contain 'A', got: %s", response.ContentString())
 	}
 
 	consistencyScore := response.Metadata["consistency_score"].(float64)
@@ -261,8 +261,8 @@ func TestSelfConsistencyCustomExtractor(t *testing.T) {
 	}
 
 	// Should extract "42" as majority
-	if response.Content != "42" {
-		t.Errorf("Expected answer='42', got: %s", response.Content)
+	if response.ContentString() != "42" {
+		t.Errorf("Expected answer='42', got: %s", response.ContentString())
 	}
 }
 
@@ -346,8 +346,8 @@ func TestSelfConsistencySingleSample(t *testing.T) {
 	}
 
 	// Should work with single sample
-	if !strings.Contains(response.Content, "42") {
-		t.Errorf("Expected answer to contain '42', got: %s", response.Content)
+	if !strings.Contains(response.ContentString(), "42") {
+		t.Errorf("Expected answer to contain '42', got: %s", response.ContentString())
 	}
 
 	consistencyScore := response.Metadata["consistency_score"].(float64)
@@ -550,8 +550,8 @@ func TestSelfConsistencyCaseInsensitive(t *testing.T) {
 	}
 
 	// Should recognize all case variations as the same answer (4/5 = 0.8)
-	if !strings.Contains(strings.ToLower(response.Content), "paris") {
-		t.Errorf("Expected answer to contain 'paris', got: %s", response.Content)
+	if !strings.Contains(strings.ToLower(response.ContentString()), "paris") {
+		t.Errorf("Expected answer to contain 'paris', got: %s", response.ContentString())
 	}
 
 	consistencyScore := response.Metadata["consistency_score"].(float64)
@@ -644,5 +644,60 @@ func BenchmarkSelfConsistencyWeighted(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = sc.Process(ctx, message)
+	}
+}
+
+// TestSelfConsistencyWithSCMemoryOption verifies WithSCMemory option sets the field.
+func TestSelfConsistencyWithSCMemoryOption(t *testing.T) {
+	mem := newMockReasoningMemory()
+	sc := NewSelfConsistency(NewMockAgent([]string{"answer"}), WithSCMemory(mem))
+	if sc.mem == nil {
+		t.Error("expected mem to be set after WithSCMemory")
+	}
+}
+
+// TestSelfConsistencyWithSCVerifierOption verifies WithSCVerifier option sets the field.
+func TestSelfConsistencyWithSCVerifierOption(t *testing.T) {
+	v := &mockVerifier{result: agenkit.VerificationResult{Passed: true, Score: 1.0}}
+	sc := NewSelfConsistency(NewMockAgent([]string{"answer"}), WithSCVerifier(v))
+	if sc.verifier == nil {
+		t.Error("expected verifier to be set after WithSCVerifier")
+	}
+}
+
+// TestSelfConsistencyWithSCSessionIDOption verifies WithSCSessionID option sets the field.
+func TestSelfConsistencyWithSCSessionIDOption(t *testing.T) {
+	sc := NewSelfConsistency(NewMockAgent([]string{"answer"}), WithSCSessionID("sc-sess"))
+	if sc.sessionID != "sc-sess" {
+		t.Errorf("expected sessionID='sc-sess', got=%q", sc.sessionID)
+	}
+}
+
+// TestSelfConsistencyArtifactInMetadata verifies Process attaches a ReasoningArtifact.
+func TestSelfConsistencyArtifactInMetadata(t *testing.T) {
+	agent := NewMockAgent([]string{
+		"The answer is 42.",
+		"The answer is 42.",
+		"The answer is 43.",
+	})
+	sc := NewSelfConsistency(
+		agent,
+		WithNumSamples(3),
+		WithSCSessionID("sc-test"),
+	)
+	ctx := context.Background()
+	response, err := sc.Process(ctx, agenkit.NewMessage("user", "What is the answer?"))
+	if err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+	artifact, ok := response.Metadata["reasoning_artifact"].(agenkit.ReasoningArtifact)
+	if !ok {
+		t.Fatalf("expected reasoning_artifact in metadata, got %T", response.Metadata["reasoning_artifact"])
+	}
+	if artifact.Technique() != "self_consistency" {
+		t.Errorf("expected technique='self_consistency', got=%q", artifact.Technique())
+	}
+	if len(artifact.Candidates()) == 0 {
+		t.Error("expected at least one candidate in artifact")
 	}
 }

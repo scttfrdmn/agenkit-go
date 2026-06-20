@@ -25,8 +25,8 @@ func TestChainOfThoughtBasic(t *testing.T) {
 	}
 
 	// Check response content
-	if !strings.Contains(response.Content, "42") {
-		t.Errorf("Expected answer to contain '42', got: %s", response.Content)
+	if !strings.Contains(response.ContentString(), "42") {
+		t.Errorf("Expected answer to contain '42', got: %s", response.ContentString())
 	}
 
 	// Check metadata
@@ -316,10 +316,60 @@ func (a *CustomCaptureAgent) Capabilities() []string {
 }
 
 func (a *CustomCaptureAgent) Process(ctx context.Context, message *agenkit.Message) (*agenkit.Message, error) {
-	*a.promptCaptured = message.Content
+	*a.promptCaptured = message.ContentString()
 	return agenkit.NewMessage("assistant", a.response), nil
 }
 
 func (a *CustomCaptureAgent) Introspect() *agenkit.IntrospectionResult {
 	return agenkit.DefaultIntrospectionResult(a)
+}
+
+// TestChainOfThoughtWithCOTMemoryOption verifies WithCOTMemory option sets the field.
+func TestChainOfThoughtWithCOTMemoryOption(t *testing.T) {
+	mem := newMockReasoningMemory()
+	cot := NewChainOfThought(NewMockAgent([]string{"step 1. done"}), WithCOTMemory(mem))
+	if cot.mem == nil {
+		t.Error("expected mem to be set after WithCOTMemory")
+	}
+}
+
+// TestChainOfThoughtWithCOTVerifierOption verifies WithCOTVerifier option sets the field.
+func TestChainOfThoughtWithCOTVerifierOption(t *testing.T) {
+	v := &mockVerifier{result: agenkit.VerificationResult{Passed: true, Score: 1.0}}
+	cot := NewChainOfThought(NewMockAgent([]string{"step 1. done"}), WithCOTVerifier(v))
+	if cot.verifier == nil {
+		t.Error("expected verifier to be set after WithCOTVerifier")
+	}
+}
+
+// TestChainOfThoughtWithCOTSessionIDOption verifies WithCOTSessionID option sets the field.
+func TestChainOfThoughtWithCOTSessionIDOption(t *testing.T) {
+	cot := NewChainOfThought(NewMockAgent([]string{"step 1. done"}), WithCOTSessionID("cot-sess"))
+	if cot.sessionID != "cot-sess" {
+		t.Errorf("expected sessionID='cot-sess', got=%q", cot.sessionID)
+	}
+}
+
+// TestChainOfThoughtArtifactInMetadata verifies Process attaches a ReasoningArtifact.
+func TestChainOfThoughtArtifactInMetadata(t *testing.T) {
+	agent := NewMockAgent([]string{"1. First step.\n2. Second step.\n3. Answer: 42."})
+	cot := NewChainOfThought(agent, WithCOTSessionID("cot-test"))
+	ctx := context.Background()
+	response, err := cot.Process(ctx, agenkit.NewMessage("user", "Solve this"))
+	if err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+	artifact, ok := response.Metadata["reasoning_artifact"].(agenkit.ReasoningArtifact)
+	if !ok {
+		t.Fatalf("expected reasoning_artifact in metadata, got %T", response.Metadata["reasoning_artifact"])
+	}
+	if artifact.Technique() != "chain_of_thought" {
+		t.Errorf("expected technique='chain_of_thought', got=%q", artifact.Technique())
+	}
+	if len(artifact.Candidates()) != 1 {
+		t.Errorf("expected exactly 1 candidate, got %d", len(artifact.Candidates()))
+	}
+	if artifact.BestCandidate().Score != 1.0 {
+		t.Errorf("expected best candidate score=1.0, got=%f", artifact.BestCandidate().Score)
+	}
 }

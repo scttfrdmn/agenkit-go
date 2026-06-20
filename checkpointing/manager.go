@@ -10,6 +10,26 @@ import (
 	"github.com/scttfrdmn/agenkit-go/agenkit"
 )
 
+// PrunePolicy controls which checkpoints are retained during pruning.
+type PrunePolicy struct {
+	// MaxCheckpointsPerSession is the maximum number of checkpoints to retain per session.
+	// Older checkpoints are deleted first. 0 means unlimited.
+	MaxCheckpointsPerSession int
+
+	// RetainMigrationCheckpoints prevents pruning of checkpoints that carry a
+	// MigrationContext, regardless of age or position.
+	RetainMigrationCheckpoints bool
+
+	// MigrationCheckpointTTL, if non-zero, sets a maximum age for migration
+	// checkpoints even when RetainMigrationCheckpoints is true.
+	// Zero means migration checkpoints are retained forever.
+	MigrationCheckpointTTL time.Duration
+
+	// MaxCheckpointSizeBytes is a soft size limit; a warning is logged when a
+	// checkpoint's JSON serialisation exceeds this value. 0 means unlimited.
+	MaxCheckpointSizeBytes int64
+}
+
 // CheckpointManager manages checkpoints for long-running agents.
 //
 // Features:
@@ -18,6 +38,7 @@ import (
 //   - Replay from specific checkpoint
 //   - Time-travel debugging
 //   - Automatic checkpoint creation (every N steps)
+//   - Configurable pruning via PrunePolicy
 //
 // Example:
 //
@@ -40,6 +61,7 @@ import (
 type CheckpointManager struct {
 	storage                CheckpointStorage
 	autoCheckpointInterval int
+	prunePolicy            *PrunePolicy
 	sessionSteps           map[string]int
 	sessionLastCheckpoint  map[string]string
 }
@@ -56,7 +78,7 @@ type CheckpointManager struct {
 //	manager := NewCheckpointManager(nil, 10) // In-memory, auto-checkpoint every 10 steps
 func NewCheckpointManager(storage CheckpointStorage, autoCheckpointInterval int) *CheckpointManager {
 	if storage == nil {
-		storage = NewInMemoryStorage()
+		storage = NewMemoryStorage()
 	}
 
 	return &CheckpointManager{
@@ -65,6 +87,13 @@ func NewCheckpointManager(storage CheckpointStorage, autoCheckpointInterval int)
 		sessionSteps:           make(map[string]int),
 		sessionLastCheckpoint:  make(map[string]string),
 	}
+}
+
+// WithPrunePolicy attaches a PrunePolicy to the manager.
+// It returns the manager for chaining.
+func (m *CheckpointManager) WithPrunePolicy(p PrunePolicy) *CheckpointManager {
+	m.prunePolicy = &p
+	return m
 }
 
 // CreateCheckpoint creates a new checkpoint.
@@ -128,6 +157,16 @@ func (m *CheckpointManager) CreateCheckpoint(
 		Messages:           messages,
 		Metadata:           metadata,
 		ParentCheckpointID: parentCheckpointID,
+	}
+
+	// Soft size check.
+	if m.prunePolicy != nil && m.prunePolicy.MaxCheckpointSizeBytes > 0 {
+		if data, err := checkpoint.ToJSON(); err == nil {
+			if int64(len(data)) > m.prunePolicy.MaxCheckpointSizeBytes {
+				log.Printf("WARNING: checkpoint %s size %d bytes exceeds soft limit %d bytes",
+					checkpointID, len(data), m.prunePolicy.MaxCheckpointSizeBytes)
+			}
+		}
 	}
 
 	if err := m.storage.Save(ctx, checkpoint); err != nil {
@@ -202,12 +241,12 @@ func (m *CheckpointManager) LoadCheckpoint(ctx context.Context, checkpointID str
 //
 //	ctx: Context
 //	sessionID: Session identifier
-//	limit: Optional limit on number of checkpoints (0 = no limit)
+//	limit: Optional limit on number of checkpoints (nil = no limit)
 //
 // Returns:
 //
 //	List of checkpoints (most recent first)
-func (m *CheckpointManager) ListCheckpoints(ctx context.Context, sessionID string, limit int) ([]*Checkpoint, error) {
+func (m *CheckpointManager) ListCheckpoints(ctx context.Context, sessionID string, limit *int) ([]*Checkpoint, error) {
 	return m.storage.ListCheckpoints(ctx, sessionID, limit)
 }
 
@@ -258,7 +297,7 @@ type ReplayFunc func(ctx context.Context, checkpoint *Checkpoint, state map[stri
 //	ctx: Context
 //	checkpointID: Starting checkpoint
 //	replayFn: Function to execute for each step
-//	upToStep: Optional step number to replay up to (0 = all)
+//	upToStep: Optional step number to replay up to (nil = all steps)
 //
 // Returns:
 //
@@ -272,13 +311,13 @@ type ReplayFunc func(ctx context.Context, checkpoint *Checkpoint, state map[stri
 //	        fmt.Printf("Replaying step %d\n", checkpoint.StepNumber)
 //	        return processMessages(checkpoint.Messages), nil
 //	    },
-//	    0,
+//	    nil,
 //	)
 func (m *CheckpointManager) ReplayFromCheckpoint(
 	ctx context.Context,
 	checkpointID string,
 	replayFn ReplayFunc,
-	upToStep int,
+	upToStep *int,
 ) ([]interface{}, error) {
 	// Get checkpoint history
 	history, err := m.GetCheckpointHistory(ctx, checkpointID, 100)
@@ -295,7 +334,7 @@ func (m *CheckpointManager) ReplayFromCheckpoint(
 
 	for _, checkpoint := range history {
 		// Stop if we've reached the target step
-		if upToStep > 0 && checkpoint.StepNumber > upToStep {
+		if upToStep != nil && checkpoint.StepNumber > *upToStep {
 			break
 		}
 
@@ -361,7 +400,7 @@ func (m *CheckpointManager) DeleteSession(ctx context.Context, sessionID string)
 //
 //	Map with statistics
 func (m *CheckpointManager) GetSessionStats(ctx context.Context, sessionID string) (map[string]interface{}, error) {
-	checkpoints, err := m.ListCheckpoints(ctx, sessionID, 0)
+	checkpoints, err := m.ListCheckpoints(ctx, sessionID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +428,11 @@ func (m *CheckpointManager) GetSessionStats(ctx context.Context, sessionID strin
 	}, nil
 }
 
-// PruneOldCheckpoints prunes old checkpoints, keeping only the most recent N.
+// PruneOldCheckpoints prunes old checkpoints, keeping only the most recent keepLast.
+//
+// If a PrunePolicy with RetainMigrationCheckpoints is attached to the manager,
+// migration checkpoints are excluded from deletion (unless they exceed
+// MigrationCheckpointTTL, when set).
 //
 // Args:
 //
@@ -407,7 +450,7 @@ func (m *CheckpointManager) GetSessionStats(ctx context.Context, sessionID strin
 //	deleted, _ := manager.PruneOldCheckpoints(ctx, "session-1", 10)
 //	fmt.Printf("Deleted %d old checkpoints\n", deleted)
 func (m *CheckpointManager) PruneOldCheckpoints(ctx context.Context, sessionID string, keepLast int) (int, error) {
-	checkpoints, err := m.ListCheckpoints(ctx, sessionID, 0)
+	checkpoints, err := m.ListCheckpoints(ctx, sessionID, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -416,11 +459,25 @@ func (m *CheckpointManager) PruneOldCheckpoints(ctx context.Context, sessionID s
 		return 0, nil
 	}
 
-	// Delete old checkpoints
 	toDelete := checkpoints[keepLast:]
 	deletedCount := 0
 
 	for _, checkpoint := range toDelete {
+		// Honour RetainMigrationCheckpoints policy.
+		if m.prunePolicy != nil && m.prunePolicy.RetainMigrationCheckpoints {
+			if IsMigrationCheckpoint(checkpoint) {
+				// Respect TTL if configured.
+				if m.prunePolicy.MigrationCheckpointTTL > 0 {
+					age := time.Since(checkpoint.Timestamp)
+					if age < m.prunePolicy.MigrationCheckpointTTL {
+						continue // still within retention window
+					}
+				} else {
+					continue // retain indefinitely
+				}
+			}
+		}
+
 		deleted, err := m.storage.Delete(ctx, checkpoint.CheckpointID)
 		if err != nil {
 			continue

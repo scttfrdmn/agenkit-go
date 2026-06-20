@@ -144,6 +144,31 @@ func (h *HumanInLoopAgent) Capabilities() []string {
 	return append(caps, "human-in-loop", "approval", "oversight")
 }
 
+// Introspect returns introspection data including wrapped agent information.
+func (h *HumanInLoopAgent) Introspect() *agenkit.IntrospectionResult {
+	// Get introspection from wrapped agent
+	baseResult := h.agent.Introspect()
+
+	// Create result with HITL wrapper info
+	result := &agenkit.IntrospectionResult{
+		AgentName:     h.name,
+		Capabilities:  h.Capabilities(),
+		InternalState: make(map[string]interface{}),
+		Metadata:      make(map[string]interface{}),
+	}
+
+	// Add HITL-specific metadata
+	result.Metadata["wrapped_agent"] = baseResult.AgentName
+	result.Metadata["approval_threshold"] = h.approvalThreshold
+	result.Metadata["confidence_key"] = h.confidenceKey
+	result.Metadata["pattern"] = "human-in-loop"
+
+	// Include wrapped agent's state
+	result.InternalState["wrapped_agent_state"] = baseResult.InternalState
+
+	return result
+}
+
 // Process executes the agent with human approval when needed.
 //
 // The process follows these steps:
@@ -194,7 +219,7 @@ func (h *HumanInLoopAgent) Process(ctx context.Context, message *agenkit.Message
 		Context: map[string]interface{}{
 			"agent":                h.agent.Name(),
 			"approval_threshold":   h.approvalThreshold,
-			"original_message":     message.Content,
+			"original_message":     message.ContentString(),
 			"confidence_shortfall": h.approvalThreshold - confidence,
 		},
 		Timestamp: time.Now().UTC(),
@@ -216,7 +241,7 @@ func (h *HumanInLoopAgent) Process(ctx context.Context, message *agenkit.Message
 		}
 
 		rejectionMsg.Metadata["approval_status"] = "rejected"
-		rejectionMsg.Metadata["original_response"] = response.Content
+		rejectionMsg.Metadata["original_response"] = response.ContentString()
 		rejectionMsg.Metadata["confidence"] = confidence
 
 		return rejectionMsg, nil
@@ -228,7 +253,7 @@ func (h *HumanInLoopAgent) Process(ctx context.Context, message *agenkit.Message
 		// Use modified version
 		finalResponse = approval.ModifiedMessage
 		finalResponse.Metadata["approval_status"] = "approved_with_modifications"
-		finalResponse.Metadata["original_response"] = response.Content
+		finalResponse.Metadata["original_response"] = response.ContentString()
 	} else {
 		finalResponse.Metadata["approval_status"] = "approved"
 	}
@@ -294,7 +319,7 @@ func SimpleApprovalFunc(autoApprove bool) ApprovalFunc {
 //
 //	func ConsoleApprovalFunc(ctx context.Context, request *ApprovalRequest) (*ApprovalResponse, error) {
 //	    fmt.Printf("\nApproval Required (confidence: %.2f)\n", request.Confidence)
-//	    fmt.Printf("Message: %s\n", request.Message.Content)
+//	    fmt.Printf("Message: %s\n", request.Message.ContentString())
 //	    fmt.Print("Approve? (y/n): ")
 //
 //	    var response string

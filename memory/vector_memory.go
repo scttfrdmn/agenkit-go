@@ -43,11 +43,11 @@ type MessageSearchResult struct {
 	Score    float64
 }
 
-// InMemoryVectorStore is a simple in-memory vector store using cosine similarity.
+// MemoryVectorStore is a simple in-memory vector store using cosine similarity.
 //
 // Good for testing and small datasets. For production, use
 // specialized vector databases (Pinecone, Weaviate, Qdrant, etc.).
-type InMemoryVectorStore struct {
+type MemoryVectorStore struct {
 	mu sync.RWMutex
 	// sessionID -> list of (messageID, embedding, message, metadata, timestamp)
 	storage   map[string][]vectorEntry
@@ -62,16 +62,16 @@ type vectorEntry struct {
 	timestamp float64
 }
 
-// NewInMemoryVectorStore creates a new in-memory vector store.
-func NewInMemoryVectorStore() *InMemoryVectorStore {
-	return &InMemoryVectorStore{
+// NewMemoryVectorStore creates a new in-memory vector store.
+func NewMemoryVectorStore() *MemoryVectorStore {
+	return &MemoryVectorStore{
 		storage:   make(map[string][]vectorEntry),
 		idCounter: 0,
 	}
 }
 
 // cosineSimilarity calculates cosine similarity between two vectors.
-func (s *InMemoryVectorStore) cosineSimilarity(a, b []float64) float64 {
+func (s *MemoryVectorStore) cosineSimilarity(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0.0
 	}
@@ -97,7 +97,7 @@ func (s *InMemoryVectorStore) cosineSimilarity(a, b []float64) float64 {
 }
 
 // Add adds a message with embedding to the store.
-func (s *InMemoryVectorStore) Add(ctx context.Context, sessionID, messageID string, embedding []float64, message agenkit.Message, metadata map[string]interface{}, timestamp float64) error {
+func (s *MemoryVectorStore) Add(ctx context.Context, sessionID, messageID string, embedding []float64, message agenkit.Message, metadata map[string]interface{}, timestamp float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -117,7 +117,7 @@ func (s *InMemoryVectorStore) Add(ctx context.Context, sessionID, messageID stri
 }
 
 // Search searches for similar messages using cosine similarity.
-func (s *InMemoryVectorStore) Search(ctx context.Context, sessionID string, queryEmbedding []float64, limit int, opts RetrieveOptions) ([]MessageSearchResult, error) {
+func (s *MemoryVectorStore) Search(ctx context.Context, sessionID string, queryEmbedding []float64, limit int, opts RetrieveOptions) ([]MessageSearchResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -229,7 +229,7 @@ func (s *InMemoryVectorStore) Search(ctx context.Context, sessionID string, quer
 }
 
 // GetRecent gets recent messages without search.
-func (s *InMemoryVectorStore) GetRecent(ctx context.Context, sessionID string, limit int, opts RetrieveOptions) ([]MessageWithMetadata, error) {
+func (s *MemoryVectorStore) GetRecent(ctx context.Context, sessionID string, limit int, opts RetrieveOptions) ([]MessageWithMetadata, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -324,7 +324,7 @@ func (s *InMemoryVectorStore) GetRecent(ctx context.Context, sessionID string, l
 }
 
 // Clear clears all messages for a session.
-func (s *InMemoryVectorStore) Clear(ctx context.Context, sessionID string) error {
+func (s *MemoryVectorStore) Clear(ctx context.Context, sessionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -351,8 +351,9 @@ func (s *InMemoryVectorStore) Clear(ctx context.Context, sessionID string) error
 //	embeddings := NewOpenAIEmbeddings(client)
 //	memory := NewVectorMemory(embeddings, nil)
 //	err := memory.Store(ctx, "session-123", message, nil)
+//	limit := 5
 //	messages, err := memory.Retrieve(ctx, "session-123",
-//	    RetrieveOptions{Query: "What did we discuss about pricing?", Limit: 5})
+//	    RetrieveOptions{Query: "What did we discuss about pricing?", Limit: &limit})
 type VectorMemory struct {
 	embeddings  EmbeddingProvider
 	vectorStore VectorStore
@@ -373,7 +374,7 @@ type VectorMemory struct {
 //	memory := NewVectorMemory(embeddings, nil)
 func NewVectorMemory(embeddingProvider EmbeddingProvider, vectorStore VectorStore) *VectorMemory {
 	if vectorStore == nil {
-		vectorStore = NewInMemoryVectorStore()
+		vectorStore = NewMemoryVectorStore()
 	}
 
 	return &VectorMemory{
@@ -394,7 +395,7 @@ func (v *VectorMemory) generateID() string {
 // Store saves a message with embedding in vector store.
 func (v *VectorMemory) Store(ctx context.Context, sessionID string, message agenkit.Message, metadata map[string]interface{}) error {
 	// Generate embedding
-	embedding, err := v.embeddings.Embed(ctx, message.Content)
+	embedding, err := v.embeddings.Embed(ctx, message.ContentString())
 	if err != nil {
 		return fmt.Errorf("failed to generate embedding: %w", err)
 	}
@@ -421,9 +422,9 @@ func (v *VectorMemory) Store(ctx context.Context, sessionID string, message agen
 //   - Tags: Filter by tags
 func (v *VectorMemory) Retrieve(ctx context.Context, sessionID string, opts RetrieveOptions) ([]agenkit.Message, error) {
 	// Set default limit
-	limit := opts.Limit
-	if limit <= 0 {
-		limit = 10
+	limit := 10
+	if opts.Limit != nil {
+		limit = *opts.Limit
 	}
 
 	if opts.Query != "" {
@@ -461,12 +462,20 @@ func (v *VectorMemory) Retrieve(ctx context.Context, sessionID string, opts Retr
 
 // RetrieveWithScores retrieves messages with similarity scores.
 //
+// Args:
+//
+//	ctx: Context
+//	sessionID: Session identifier
+//	query: Search query
+//	limit: Maximum results to return (nil = default of 10)
+//
 // Returns:
 //
 //	List of (message, score) tuples
-func (v *VectorMemory) RetrieveWithScores(ctx context.Context, sessionID string, query string, limit int) ([]MessageSearchResult, error) {
-	if limit <= 0 {
-		limit = 10
+func (v *VectorMemory) RetrieveWithScores(ctx context.Context, sessionID string, query string, limit *int) ([]MessageSearchResult, error) {
+	actualLimit := 10
+	if limit != nil {
+		actualLimit = *limit
 	}
 
 	queryEmbedding, err := v.embeddings.Embed(ctx, query)
@@ -474,7 +483,7 @@ func (v *VectorMemory) RetrieveWithScores(ctx context.Context, sessionID string,
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
-	return v.vectorStore.Search(ctx, sessionID, queryEmbedding, limit, RetrieveOptions{})
+	return v.vectorStore.Search(ctx, sessionID, queryEmbedding, actualLimit, RetrieveOptions{})
 }
 
 // Summarize creates a summary of conversation history.
@@ -482,7 +491,8 @@ func (v *VectorMemory) RetrieveWithScores(ctx context.Context, sessionID string,
 // For vector memory, we can use semantic search to find
 // key messages and summarize those.
 func (v *VectorMemory) Summarize(ctx context.Context, sessionID string, opts SummarizeOptions) (agenkit.Message, error) {
-	messages, err := v.Retrieve(ctx, sessionID, RetrieveOptions{Limit: 100})
+	limit := 100
+	messages, err := v.Retrieve(ctx, sessionID, RetrieveOptions{Limit: &limit})
 	if err != nil {
 		return agenkit.Message{}, err
 	}
@@ -503,7 +513,7 @@ func (v *VectorMemory) Summarize(ctx context.Context, sessionID string, opts Sum
 
 	for i := 0; i < maxMessages; i++ {
 		msg := messages[i]
-		preview := msg.Content
+		preview := msg.ContentString()
 		if len(preview) > 100 {
 			preview = preview[:100] + "..."
 		}
@@ -537,3 +547,9 @@ func (v *VectorMemory) Capabilities() []string {
 		"tag_filtering",
 	}
 }
+
+// Deprecated: use MemoryVectorStore.
+type InMemoryVectorStore = MemoryVectorStore
+
+// Deprecated: use NewMemoryVectorStore.
+var NewInMemoryVectorStore = NewMemoryVectorStore

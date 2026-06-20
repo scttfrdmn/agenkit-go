@@ -17,7 +17,7 @@ import (
 //
 // Example:
 //
-//	llm := NewOpenAILLM("sk-...", "gpt-4-turbo")
+//	llm := NewOpenAILLM("sk-...", "gpt-4o")
 //	messages := []*agenkit.Message{
 //	    agenkit.NewMessage("user", "Hello!"),
 //	}
@@ -25,7 +25,7 @@ import (
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	fmt.Println(response.Content)
+//	fmt.Println(response.ContentString())
 //
 // Streaming example:
 //
@@ -34,7 +34,7 @@ import (
 //	    log.Fatal(err)
 //	}
 //	for chunk := range stream {
-//	    fmt.Print(chunk.Content)
+//	    fmt.Print(chunk.ContentString())
 //	}
 //
 // Provider-specific options:
@@ -57,15 +57,15 @@ type OpenAILLM struct {
 //
 // Parameters:
 //   - apiKey: OpenAI API key. If empty, will use OPENAI_API_KEY env var
-//   - model: Model identifier (e.g., "gpt-4-turbo", "gpt-4o")
+//   - model: Model identifier (e.g., "gpt-4o", "gpt-4o-mini")
 //
 // Example:
 //
-//	llm := NewOpenAILLM("sk-...", "gpt-4-turbo")
+//	llm := NewOpenAILLM("sk-...", "gpt-4o")
 func NewOpenAILLM(apiKey, model string) *OpenAILLM {
 	client := openai.NewClient(apiKey)
 	if model == "" {
-		model = "gpt-4-turbo"
+		model = "gpt-4o"
 	}
 	return &OpenAILLM{
 		client: client,
@@ -101,7 +101,7 @@ func (o *OpenAILLM) Model() string {
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	fmt.Println(response.Content)
+//	fmt.Println(response.ContentString())
 //	fmt.Printf("Usage: %+v\n", response.Metadata["usage"])
 func (o *OpenAILLM) Complete(ctx context.Context, messages []*agenkit.Message, opts ...CallOption) (*agenkit.Message, error) {
 	// Build options
@@ -112,8 +112,9 @@ func (o *OpenAILLM) Complete(ctx context.Context, messages []*agenkit.Message, o
 
 	// Build request
 	req := openai.ChatCompletionRequest{
-		Model:    o.model,
-		Messages: openaiMessages,
+		Model:     o.model,
+		Messages:  openaiMessages,
+		MaxTokens: 4096, // Default
 	}
 
 	// Apply options
@@ -153,8 +154,12 @@ func (o *OpenAILLM) Complete(ctx context.Context, messages []*agenkit.Message, o
 		return nil, errors.New("openai returned no choices")
 	}
 
-	// Convert response to Agenkit Message
-	response := agenkit.NewMessage("agent", resp.Choices[0].Message.Content)
+	// Convert response to Agenkit Message.
+	// Content field holds the text for backward compatibility.
+	// When tool_calls are present (multi-block response), they are stored in
+	// Metadata["content_blocks"] for consumers that need the full structured response.
+	msg := resp.Choices[0].Message
+	response := agenkit.NewMessage("agent", msg.Content)
 	response.Metadata["model"] = resp.Model
 	response.Metadata["usage"] = map[string]interface{}{
 		"prompt_tokens":     resp.Usage.PromptTokens,
@@ -163,6 +168,26 @@ func (o *OpenAILLM) Complete(ctx context.Context, messages []*agenkit.Message, o
 	}
 	response.Metadata["finish_reason"] = resp.Choices[0].FinishReason
 	response.Metadata["id"] = resp.ID
+
+	// Store content_blocks for multimodal consumers when tool calls are present
+	if len(msg.ToolCalls) > 0 {
+		blocks := make([]interface{}, 0, len(msg.ToolCalls)+1)
+		if msg.Content != "" {
+			blocks = append(blocks, map[string]interface{}{
+				"type": "text",
+				"text": msg.Content,
+			})
+		}
+		for _, tc := range msg.ToolCalls {
+			blocks = append(blocks, map[string]interface{}{
+				"type":  "tool_use",
+				"id":    tc.ID,
+				"name":  tc.Function.Name,
+				"input": tc.Function.Arguments,
+			})
+		}
+		response.Metadata["content_blocks"] = blocks
+	}
 
 	return response, nil
 }
@@ -188,7 +213,7 @@ func (o *OpenAILLM) Complete(ctx context.Context, messages []*agenkit.Message, o
 //	    log.Fatal(err)
 //	}
 //	for chunk := range stream {
-//	    fmt.Print(chunk.Content)
+//	    fmt.Print(chunk.ContentString())
 //	}
 func (o *OpenAILLM) Stream(ctx context.Context, messages []*agenkit.Message, opts ...CallOption) (<-chan *agenkit.Message, error) {
 	// Build options
@@ -199,9 +224,10 @@ func (o *OpenAILLM) Stream(ctx context.Context, messages []*agenkit.Message, opt
 
 	// Build request
 	req := openai.ChatCompletionRequest{
-		Model:    o.model,
-		Messages: openaiMessages,
-		Stream:   true,
+		Model:     o.model,
+		Messages:  openaiMessages,
+		MaxTokens: 4096, // Default
+		Stream:    true,
 	}
 
 	// Apply options
@@ -282,7 +308,7 @@ func (o *OpenAILLM) convertMessages(messages []*agenkit.Message) []openai.ChatCo
 
 		openaiMessages = append(openaiMessages, openai.ChatCompletionMessage{
 			Role:    role,
-			Content: msg.Content,
+			Content: msg.ContentString(),
 		})
 	}
 
@@ -297,7 +323,7 @@ func (o *OpenAILLM) convertMessages(messages []*agenkit.Message) []openai.ChatCo
 //
 // Example:
 //
-//	llm := NewOpenAILLM("sk-...", "gpt-4-turbo")
+//	llm := NewOpenAILLM("sk-...", "gpt-4o")
 //	client := llm.Unwrap().(*openai.Client)
 //	// Use OpenAI-specific features
 //	resp, err := client.CreateChatCompletion(...)

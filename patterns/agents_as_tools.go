@@ -126,7 +126,7 @@ func (t *AgentTool) Description() string {
 //
 // Returns:
 //   - ToolResult containing agent output, formatted according to outputFormat
-func (t *AgentTool) Execute(ctx context.Context, params map[string]interface{}) (*agenkit.ToolResult, error) {
+func (t *AgentTool) Execute(ctx context.Context, params map[string]any) (*agenkit.ToolResult, error) {
 	// Extract input
 	query, ok := params[t.inputKey]
 	if !ok {
@@ -167,11 +167,11 @@ func (t *AgentTool) Execute(ctx context.Context, params map[string]interface{}) 
 func (t *AgentTool) formatOutput(response *agenkit.Message) interface{} {
 	switch t.outputFormat {
 	case OutputFormatString:
-		return response.Content
+		return response.ContentString()
 
 	case OutputFormatDict:
 		result := map[string]interface{}{
-			"content": response.Content,
+			"content": response.ContentString(),
 		}
 		if t.includeMetadata {
 			result["metadata"] = response.Metadata
@@ -183,7 +183,7 @@ func (t *AgentTool) formatOutput(response *agenkit.Message) interface{} {
 
 	default:
 		// Default to string content
-		return response.Content
+		return response.ContentString()
 	}
 }
 

@@ -60,7 +60,7 @@ func (m *mockReasoningTool) Description() string {
 	return m.description
 }
 
-func (m *mockReasoningTool) Execute(ctx context.Context, params map[string]interface{}) (*agenkit.ToolResult, error) {
+func (m *mockReasoningTool) Execute(ctx context.Context, params map[string]any) (*agenkit.ToolResult, error) {
 	m.callCount++
 
 	if m.shouldFail {
@@ -166,10 +166,14 @@ TOOL_CALL: calculator
 PARAMETERS: {"expression": "2 + 2"}
 This should give me the answer.`
 
-	toolName, parameters, remainingText := agent.parseToolCall(text)
+	toolNamePtr, parameters, remainingText := agent.parseToolCall(text)
 
-	if toolName != "calculator" {
-		t.Errorf("expected tool name 'calculator', got '%s'", toolName)
+	if toolNamePtr == nil || *toolNamePtr != "calculator" {
+		name := "<nil>"
+		if toolNamePtr != nil {
+			name = *toolNamePtr
+		}
+		t.Errorf("expected tool name 'calculator', got '%s'", name)
 	}
 
 	if parameters["expression"] != "2 + 2" {
@@ -188,10 +192,14 @@ func TestParseToolCall_NoParameters(t *testing.T) {
 
 	text := "TOOL_CALL: search"
 
-	toolName, parameters, _ := agent.parseToolCall(text)
+	toolNamePtr, parameters, _ := agent.parseToolCall(text)
 
-	if toolName != "search" {
-		t.Errorf("expected tool name 'search', got '%s'", toolName)
+	if toolNamePtr == nil || *toolNamePtr != "search" {
+		name := "<nil>"
+		if toolNamePtr != nil {
+			name = *toolNamePtr
+		}
+		t.Errorf("expected tool name 'search', got '%s'", name)
 	}
 
 	if len(parameters) != 0 {
@@ -225,10 +233,10 @@ func TestParseToolCall_NoToolCall(t *testing.T) {
 
 	text := "Just regular thinking, no tool call"
 
-	toolName, parameters, remainingText := agent.parseToolCall(text)
+	toolNamePtr, parameters, remainingText := agent.parseToolCall(text)
 
-	if toolName != "" {
-		t.Errorf("expected empty tool name, got '%s'", toolName)
+	if toolNamePtr != nil {
+		t.Errorf("expected nil tool name, got '%s'", *toolNamePtr)
 	}
 
 	if parameters != nil {
@@ -447,8 +455,8 @@ func TestProcess_DirectConclusion(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(result.Content, "The result is 42") {
-		t.Errorf("expected answer in result, got: %s", result.Content)
+	if !strings.Contains(result.ContentString(), "The result is 42") {
+		t.Errorf("expected answer in result, got: %s", result.ContentString())
 	}
 
 	// Check metadata
@@ -485,8 +493,8 @@ func TestProcess_WithToolCall(t *testing.T) {
 		t.Errorf("expected calculator called once, got %d", calculator.callCount)
 	}
 
-	if !strings.Contains(result.Content, "The result is 4") {
-		t.Errorf("expected answer in result, got: %s", result.Content)
+	if !strings.Contains(result.ContentString(), "The result is 4") {
+		t.Errorf("expected answer in result, got: %s", result.ContentString())
 	}
 
 	// Check trace
@@ -521,7 +529,7 @@ func TestProcess_ToolCallFailure(t *testing.T) {
 	}
 
 	// Should continue despite tool failure
-	if !strings.Contains(result.Content, "Continuing without search results") {
+	if !strings.Contains(result.ContentString(), "Continuing without search results") {
 		t.Error("expected agent to continue after tool failure")
 	}
 }
@@ -547,7 +555,7 @@ func TestProcess_UnknownTool(t *testing.T) {
 	}
 
 	// Should continue with regular thinking
-	if !strings.Contains(result.Content, "Proceeding without unknown tool") {
+	if !strings.Contains(result.ContentString(), "Proceeding without unknown tool") {
 		t.Error("expected agent to continue when tool not found")
 	}
 }

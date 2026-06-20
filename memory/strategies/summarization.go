@@ -68,7 +68,8 @@ func NewSummarizationStrategy(recentCount int, summarizeOlder bool) *Summarizati
 //   - Recent messages ordered from oldest to newest
 func (s *SummarizationStrategy) Select(ctx context.Context, mem memory.Memory, sessionID string, contextLimit int) ([]agenkit.Message, error) {
 	// Get recent messages
-	recent, err := mem.Retrieve(ctx, sessionID, memory.RetrieveOptions{Limit: s.recentCount})
+	recentCount := s.recentCount
+	recent, err := mem.Retrieve(ctx, sessionID, memory.RetrieveOptions{Limit: &recentCount})
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +94,7 @@ func (s *SummarizationStrategy) Select(ctx context.Context, mem memory.Memory, s
 	}
 
 	// Check if summary indicates no older messages
-	if strings.Contains(summary.Content, "No messages") {
+	if strings.Contains(summary.ContentString(), "No messages") {
 		// No older messages to summarize
 		if len(recent) > contextLimit {
 			recent = recent[:contextLimit]
